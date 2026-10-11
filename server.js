@@ -1,306 +1,256 @@
+"use strict";
+/* Lucky Nova: сервер банка и «Дурака онлайн» (2–4 игрока). Монеты виртуальные.
+   Запуск: npm i && BOT_TOKEN=токен_бота node server.js   (без BOT_TOKEN работает тестовый режим) */
 const http = require("http"), fs = require("fs"), path = require("path"), crypto = require("crypto");
-const { WebSocketServer } = require("ws");
+const PORT = process.env.PORT || 8080, TOKEN = process.env.BOT_TOKEN || "", FILE = path.join(__dirname, "data.json");
+const SKIDS = ["k0", "k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8"], EMO = ["😊", "🤐", "😘", "😎", "🤡", "👍", "👎"];
+let DB = { users: {} };
+try { DB = JSON.parse(fs.readFileSync(FILE, "utf8")); } catch (e) {}
+let dirty = false; const save = () => { dirty = true; };
+setInterval(() => { if (dirty) { dirty = false; fs.writeFile(FILE, JSON.stringify(DB), () => {}); } }, 3000).unref();
 
-const PORT = process.env.PORT || 3000;
-const BOT_TOKEN = process.env.BOT_TOKEN || "";
-const ALLOW_DEV = process.env.ALLOW_DEV === "1"; // только для локальных тестов: ?dev=имя
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
-const DB_FILE = path.join(DATA_DIR, "db.json");
+const ON = {}, ROOMS = {}, IN = {}, TMR = {};
+const send = (id, o) => { const w = ON[id]; if (w && w.readyState === 1) w.send(JSON.stringify(o)); };
+const U = id => DB.users[id], push = u => send(u.id, { t: "me", id: u.id, name: u.name, bal: u.bal, skins: u.skins, sel: u.sel });
+const err = (id, m) => send(id, { t: "err", m });
+const rk = c => c % 9, su = c => Math.floor(c / 9), beats = (a, d, ts) => su(a) === su(d) ? rk(d) > rk(a) : su(d) === ts && su(a) !== ts;
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
-/* ===== хранилище ===== */
-fs.mkdirSync(DATA_DIR, { recursive: true });
-let db = { users: {} };
-try { db = JSON.parse(fs.readFileSync(DB_FILE, "utf8")); } catch (e) {}
-let saveT = null;
-function saveNow() {
-  try { const t = DB_FILE + ".tmp"; fs.writeFileSync(t, JSON.stringify(db)); fs.renameSync(t, DB_FILE); }
-  catch (e) { console.error("save error", e); }
-}
-function save() { if (saveT) return; saveT = setTimeout(() => { saveT = null; saveNow(); }, 500); }
-["SIGTERM", "SIGINT"].forEach(s => process.on(s, () => { saveNow(); process.exit(0); }));
-
-/* ===== утилиты ===== */
-const rn = n => crypto.randomInt(n);
-const int = x => { x = Math.floor(+x); return Number.isSafeInteger(x) && x > 0 ? x : 0; };
-const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = rn(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const dname = u => u.username ? "@" + u.username : (u.name || "ID " + u.id);
-
-/* ===== проверка Telegram initData ===== */
-function verify(init) {
-  if (!BOT_TOKEN || !init) return null;
-  const p = new URLSearchParams(init), h = p.get("hash");
-  if (!h) return null;
-  p.delete("hash");
+function check(init) {
+  const p = new URLSearchParams(init), h = p.get("hash"); p.delete("hash");
   const s = [...p.entries()].map(([k, v]) => k + "=" + v).sort().join("\n");
-  const key = crypto.createHmac("sha256", "WebAppData").update(BOT_TOKEN).digest();
-  const c = crypto.createHmac("sha256", key).update(s).digest("hex");
-  if (c.length !== h.length || !crypto.timingSafeEqual(Buffer.from(c), Buffer.from(h))) return null;
-  if (Date.now() / 1000 - (+p.get("auth_date") || 0) > 86400) return null;
-  try { return JSON.parse(p.get("user")); } catch (e) { return null; }
+  const key = crypto.createHmac("sha256", "WebAppData").update(TOKEN).digest();
+  if (crypto.createHmac("sha256", key).update(s).digest("hex") !== h) return null;
+  const u = JSON.parse(p.get("user")); return { id: String(u.id), name: u.first_name || u.username || "Игрок", username: u.username || "" };
 }
-function getUser(id, name, username) {
-  let u = db.users[id];
-  if (!u) u = db.users[id] = { id, name: name || "", username: username || "", bal: 0, skins: ["k0"], sel: "k0" };
-  else { if (name) u.name = name; u.username = username || ""; }
-  save();
-  return u;
+function auth(ws, m) {
+  let p = null;
+  if (TOKEN) { try { p = m.init && check(m.init); } catch (e) {} }
+  else p = { id: "dev_" + (m.name || "guest"), name: m.name || "Гость", username: "" };
+  if (!p) { ws.send(JSON.stringify({ t: "err", m: "Ошибка авторизации" })); return; }
+  const u = DB.users[p.id] || (DB.users[p.id] = { id: p.id, name: p.name, username: p.username, bal: 0, skins: ["k0"], sel: "k0" });
+  u.name = p.name; u.username = p.username; ws.uid = p.id;
+  if (ON[p.id] && ON[p.id] !== ws) try { ON[p.id].close(); } catch (e) {}
+  ON[p.id] = ws; clearTimeout(TMR[p.id]); save(); push(u);
+  const r = ROOMS[IN[p.id]]; if (r) r.g ? send(p.id, view(r, r.pl.find(x => x.id === p.id))) : roomView(r);
 }
+const newCode = () => { let c; do c = Array.from({ length: 4 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random() * 24)]).join(""); while (ROOMS[c]); return c; };
 
-/* ===== соединения ===== */
-const conns = new Map();      // id -> {ws, timer}
-const rooms = new Map();      // code -> room
-const userRoom = new Map();   // id -> room
-const tx = (id, o) => { const c = conns.get(id); if (c && c.ws && c.ws.readyState === 1) c.ws.send(JSON.stringify(o)); };
-const err = (u, m) => tx(u.id, { t: "err", m });
-const me = u => tx(u.id, { t: "me", bal: u.bal, skins: u.skins, sel: u.sel, id: u.id, name: dname(u) });
-
-/* ===== дурак ===== */
-const RANKS = ["6", "7", "8", "9", "10", "J", "Q", "K", "A"], SUITS = ["♠️", "♥️", "♦️", "♣️"];
-const rv = c => RANKS.indexOf(c.r);
-const beats = (d, a, tr) => (d.s === a.s && rv(d) > rv(a)) || (d.s === tr.s && a.s !== tr.s);
-const oppOf = (room, id) => room.p.find(x => x !== id);
-const defOf = room => oppOf(room, room.g.att);
-
-function sortHand(g) {
-  Object.values(g.hands).forEach(h => h.sort((x, y) =>
-    (x.s === g.trump.s) - (y.s === g.trump.s) || SUITS.indexOf(x.s) - SUITS.indexOf(y.s) || rv(x) - rv(y)));
+/* ---------- столы ---------- */
+function roomView(r) {
+  r.pl.forEach(p => send(p.id, { t: "room", code: r.code, bet: r.bet, max: r.max, host: r.host, me: p.id, pl: r.pl.map(x => ({ id: x.id, name: x.name, skin: x.skin })) }));
 }
-function newCode() {
-  const L = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-  for (;;) { let c = ""; for (let i = 0; i < 4; i++) c += L[rn(L.length)]; if (!rooms.has(c)) return c; }
+function join(r, u) {
+  u.bal -= r.bet; r.pl.push({ id: u.id, name: u.name, skin: u.sel, hand: [], out: 0 }); IN[u.id] = r.code; save(); push(u);
+  if (r.pl.length === r.max) start(r); else roomView(r);
 }
-function startGame(room) {
-  const deck = [];
-  SUITS.forEach(s => RANKS.forEach(r => deck.push({ r, s })));
-  shuffle(deck);
-  const trump = deck[0]; // нижняя карта колоды
-  const hands = {};
-  room.p.forEach(id => hands[id] = []);
-  for (let i = 0; i < 6; i++) room.p.forEach(id => hands[id].push(deck.pop()));
-  let att = null, low = 99;
-  room.p.forEach(id => hands[id].forEach(c => { if (c.s === trump.s && rv(c) < low) { low = rv(c); att = id; } }));
-  if (!att) att = room.p[rn(2)];
-  room.g = { deck, trump, hands, att, table: [], tk: false, lim: 6, busy: false };
-  sortHand(room.g);
-  pushState(room);
+function mk(u, m) {
+  if (IN[u.id]) return err(u.id, "Ты уже за столом");
+  const bet = Math.floor(+m.n), max = [2, 3, 4].includes(+m.max) ? +m.max : 2;
+  if (!(bet >= 1)) return err(u.id, "Неверная ставка");
+  if (u.bal < bet) return err(u.id, "Не хватает монет в банке");
+  const c = newCode(); join(ROOMS[c] = { code: c, bet, max, host: u.id, pl: [], g: null }, u);
 }
-function canThrow(room) {
-  const g = room.g;
-  if (g.table.length >= g.lim) return false;
-  const ranks = new Set(); g.table.forEach(p => { ranks.add(p.a.r); if (p.d) ranks.add(p.d.r); });
-  return g.hands[g.att].some(c => ranks.has(c.r));
+function jn(u, m) {
+  const r = ROOMS[String(m.code || "").toUpperCase()];
+  if (IN[u.id]) return err(u.id, "Ты уже за столом");
+  if (!r) return err(u.id, "Стол не найден");
+  if (r.g) return err(u.id, "Игра уже идёт");
+  if (r.pl.length >= r.max) return err(u.id, "Стол заполнен");
+  if (u.bal < r.bet) return err(u.id, "Не хватает монет в банке (нужно " + r.bet + ")");
+  join(r, u);
 }
-function pushState(room) {
-  const g = room.g; if (!g) return;
-  const undef = g.table.some(p => !p.d);
-  room.p.forEach(id => {
-    const att = id === g.att, o = oppOf(room, id);
-    let act = null;
-    if (!g.busy) {
-      if (!att) { if (!g.tk && undef) act = "take"; }
-      else if (g.table.length && (g.tk || !undef)) act = "done";
-    }
-    tx(id, { t: "g", att, tk: g.tk, tb: g.table.map(p => ({ a: p.a, d: p.d })), h: g.hands[id],
-      oc: g.hands[o].length, opp: dname(db.users[o]), bet: room.bet, dn: g.deck.length, tc: g.trump, act });
-  });
-}
-function checkAuto(room) {
-  const g = room.g, undef = g.table.some(p => !p.d);
-  pushState(room);
-  let fn = null;
-  if (g.tk) { if (!canThrow(room)) fn = endTake; }
-  else if (g.table.length && !undef && !canThrow(room)) fn = endBito;
-  if (fn) { g.busy = true; pushState(room); setTimeout(() => { if (room.g === g) fn(room); }, 900); }
-}
-function refill(room) {
-  const g = room.g;
-  [g.att, defOf(room)].forEach(id => { while (g.hands[id].length < 6 && g.deck.length) g.hands[id].push(g.deck.pop()); });
-}
-function nextRound(room) {
-  const g = room.g;
-  if (!g.deck.length) {
-    const e = room.p.map(id => g.hands[id].length === 0);
-    if (e[0] && e[1]) return finish(room, null);
-    if (e[0]) return finish(room, room.p[0]);
-    if (e[1]) return finish(room, room.p[1]);
-  }
-  g.table = []; g.tk = false; g.busy = false;
-  g.lim = Math.min(6, g.hands[defOf(room)].length);
-  sortHand(g);
-  pushState(room);
-}
-function endBito(room) {
-  const g = room.g; refill(room);
-  g.att = defOf(room);
-  nextRound(room);
-}
-function endTake(room) {
-  const g = room.g, d = defOf(room);
-  g.table.forEach(p => { g.hands[d].push(p.a); if (p.d) g.hands[d].push(p.d); });
-  g.table = []; refill(room);
-  nextRound(room);
-}
-
-/* ===== комнаты и расчёт ===== */
-function cancelRoom(room) {
-  room.p.forEach(id => {
-    const u = db.users[id]; u.bal += room.bet; userRoom.delete(id);
-    tx(id, { t: "room", code: null }); me(u);
-  });
-  rooms.delete(room.code); save();
-}
-function finish(room, winId) {
-  rooms.delete(room.code); room.g = null;
-  room.p.forEach(id => {
-    const u = db.users[id]; userRoom.delete(id);
-    let win, n;
-    if (winId === null) { u.bal += room.bet; win = 2; n = room.bet; }
-    else if (id === winId) { u.bal += room.bet * 2; win = 1; n = room.bet * 2; }
-    else { win = 0; n = 0; }
-    me(u); tx(id, { t: "end", win, n });
-  });
+function close(r) { r.pl.forEach(p => delete IN[p.id]); delete ROOMS[r.code]; }
+function leave(u) {
+  const r = ROOMS[IN[u.id]]; if (!r) return;
+  if (r.g) return abandon(r, u.id);
+  if (r.host === u.id) { r.pl.forEach(p => { U(p.id).bal += r.bet; send(p.id, { t: "room", code: null }); push(U(p.id)); }); close(r); }
+  else { u.bal += r.bet; r.pl = r.pl.filter(p => p.id !== u.id); delete IN[u.id]; send(u.id, { t: "room", code: null }); push(u); roomView(r); }
   save();
 }
-function abandon(u) {
-  const room = userRoom.get(u.id);
-  if (!room) return;
-  if (room.g) finish(room, oppOf(room, u.id)); else cancelRoom(room);
+function begin(u) {
+  const r = ROOMS[IN[u.id]];
+  if (!r || r.g || r.host !== u.id) return;
+  if (r.pl.length < 2) return err(u.id, "Нужно минимум 2 игрока");
+  start(r);
 }
 
-/* ===== обработчики сообщений ===== */
-const H = {
-  dep(u, m) {
-    const n = int(m.n); if (!n || n > 1e12) return err(u, "Неверная сумма");
-    u.bal += n; save(); me(u);
-  },
-  wd(u, m) {
-    const n = int(m.n); if (!n) return err(u, "Неверная сумма");
-    if (n > u.bal) return err(u, "В банке столько нет");
-    u.bal -= n; save(); me(u); tx(u.id, { t: "wd", n });
-  },
-  send(u, m) {
-    const n = int(m.n); if (!n) return err(u, "Неверная сумма");
-    const q = String(m.to || "").trim().replace(/^@/, "").toLowerCase();
-    if (!q) return err(u, "Укажи ID или @username");
-    const r = db.users[q] || Object.values(db.users).find(x => x.username && x.username.toLowerCase() === q);
-    if (!r) return err(u, "Игрок не найден (он должен хоть раз зайти в игру)");
-    if (r.id === u.id) return err(u, "Нельзя отправить самому себе");
-    if (n > u.bal) return err(u, "В банке не хватает монет");
-    u.bal -= n; r.bal += n; save(); me(u); me(r);
-    tx(r.id, { t: "in", from: dname(u), n });
-    tx(u.id, { t: "err", m: "Отправлено " + n + " 🪙 → " + dname(r) });
-  },
-  mk(u, m) {
-    if (userRoom.has(u.id)) return err(u, "Ты уже за столом");
-    const n = int(m.n); if (!n) return err(u, "Неверная ставка");
-    if (u.bal < n) return err(u, "В банке не хватает монет. Положи их во вкладке «Бонусы»");
-    u.bal -= n;
-    const room = { code: newCode(), bet: n, p: [u.id], g: null };
-    rooms.set(room.code, room); userRoom.set(u.id, room);
-    save(); me(u); tx(u.id, { t: "room", code: room.code, bet: n });
-  },
-  jn(u, m) {
-    if (userRoom.has(u.id)) return err(u, "Ты уже за столом");
-    const room = rooms.get(String(m.code || "").trim().toUpperCase());
-    if (!room || room.g || room.p.length !== 1) return err(u, "Стол не найден");
-    if (u.bal < room.bet) return err(u, "Не хватает монет в банке: ставка " + room.bet);
-    u.bal -= room.bet; room.p.push(u.id); userRoom.set(u.id, room);
-    save(); me(u);
-    tx(room.p[0], { t: "room", code: null });
-    startGame(room);
-  },
-  leave(u) { abandon(u); },
-  play(u, m) {
-    const room = userRoom.get(u.id), g = room && room.g;
-    if (!g || g.busy) return;
-    const hand = g.hands[u.id], i = Math.floor(+m.c);
-    if (!(i >= 0 && i < hand.length)) return;
-    const card = hand[i];
-    if (u.id === g.att) {
-      if (g.table.length >= g.lim) return err(u, "Больше подкидывать нельзя");
-      if (g.table.length) {
-        const ok = g.table.some(p => p.a.r === card.r || (p.d && p.d.r === card.r));
-        if (!ok) return err(u, "Нужна карта того же ранга, что на столе");
-      }
-      hand.splice(i, 1); g.table.push({ a: card, d: null });
-    } else {
-      if (g.tk) return err(u, "Ты берёшь карты");
-      const p = g.table.find(p => !p.d && beats(card, p.a, g.trump));
-      if (!p) return err(u, "Эта карта не бьёт");
-      hand.splice(i, 1); p.d = card;
-    }
-    checkAuto(room);
-  },
-  act(u) {
-    const room = userRoom.get(u.id), g = room && room.g;
-    if (!g || g.busy) return;
-    const undef = g.table.some(p => !p.d);
-    if (u.id !== g.att) {
-      if (g.tk || !undef) return;
-      g.tk = true; checkAuto(room);
-    } else {
-      if (!g.table.length) return;
-      if (g.tk) return endTake(room);
-      if (undef) return err(u, "Соперник ещё не отбился");
-      endBito(room);
-    }
+/* ---------- игра ---------- */
+const alive = r => r.pl.filter(p => !p.out);
+const nxt = (r, i) => { for (let k = 1; k <= r.pl.length; k++) { const j = (i + k) % r.pl.length; if (!r.pl[j].out) return j; } return i; };
+const srt = (p, ts) => p.hand.sort((a, b) => (su(a) === ts) - (su(b) === ts) || su(a) - su(b) || rk(a) - rk(b));
+function start(r) {
+  const deck = shuffle(Array.from({ length: 36 }, (_, i) => i)), ts = su(deck[0]);
+  r.pl.forEach(p => { p.skin = U(p.id).sel; p.out = 0; p.hand = deck.splice(deck.length - 6, 6); });
+  let att = Math.floor(Math.random() * r.pl.length), best = 99;
+  r.pl.forEach((p, i) => p.hand.forEach(c => { if (su(c) === ts && rk(c) < best) { best = rk(c); att = i; } }));
+  r.g = { deck, tc: deck[0], ts, tb: [], disc: [], att, def: 0, lim: 5, tk: 0, conf: { a: 0, d: 0 }, done: {}, bout: 1, sus: {}, cheats: {}, cb: {}, ab: {} };
+  r.g.def = nxt(r, att); r.g.lim = Math.min(5, r.pl[r.g.def].hand.length);
+  r.pl.forEach(p => srt(p, ts)); sendG(r);
+}
+function canThrow(r, i) {
+  const g = r.g, p = r.pl[i];
+  if (i === g.def || p.out || !p.hand.length) return false;
+  if (!g.tb.length) return i === g.att;
+  if (g.tb.length >= g.lim) return false;
+  if (!g.tk && g.tb.filter(x => x.d == null).length >= r.pl[g.def].hand.length) return false;
+  return p.hand.some(c => g.tb.some(x => rk(x.a) === rk(c) || (x.d != null && rk(x.d) === rk(c))));
+}
+function play(r, i, m) {
+  const g = r.g, p = r.pl[i], c = p.hand[m.c];
+  if (c == null || p.out) return;
+  if (i === g.def) {
+    if (g.tk) return err(p.id, "Ты уже берёшь карты");
+    let t = Number.isInteger(m.tgt) && g.tb[m.tgt] && g.tb[m.tgt].d == null ? m.tgt : g.tb.findIndex(x => x.d == null && beats(x.a, c, g.ts));
+    if (t < 0 || !g.tb[t] || g.tb[t].d != null || !beats(g.tb[t].a, c, g.ts)) return err(p.id, "Этой картой не побить");
+    g.tb[t].d = c; g.tb[t].ds = p.skin;
+  } else {
+    if (!canThrow(r, i)) return err(p.id, "Сейчас подкидывать нельзя");
+    if (g.tb.length && !g.tb.some(x => rk(x.a) === rk(c) || (x.d != null && rk(x.d) === rk(c)))) return err(p.id, "Такого ранга нет на столе");
+    g.tb.push({ a: c, as: p.skin, d: null });
   }
-};
-
-/* ===== HTTP + WebSocket ===== */
-const server = http.createServer((req, res) => {
-  const url = req.url.split("?")[0];
-  if (url === "/health") { res.writeHead(200); return res.end("ok"); }
-  if (url === "/" || url === "/index.html") {
-    fs.readFile(path.join(__dirname, "index.html"), (e, d) => {
-      if (e) { res.writeHead(500); return res.end("index.html not found"); }
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff" });
-      res.end(d);
-    });
-    return;
+  p.hand.splice(m.c, 1); g.conf = { a: 0, d: 0 }; g.done = {}; settle(r);
+}
+function act(r, i) {
+  const g = r.g, open = g.tb.some(x => x.d == null), beaten = g.tb.length && !open;
+  if (i === g.def) {
+    if (open && !g.tk) { g.tk = 1; g.done = {}; }
+    else if (beaten && g.conf.a && !g.conf.d) g.conf.d = 1;
+  } else if (g.tk) g.done[i] = 1;
+  else if (i === g.att && beaten && !g.conf.a) g.conf.a = 1;
+  settle(r);
+}
+function settle(r) {
+  const g = r.g;
+  if (g.tk) {
+    const pend = r.pl.some((p, j) => j !== g.def && canThrow(r, j) && !g.done[j]);
+    if (!pend) { const d = r.pl[g.def]; g.tb.forEach(x => { d.hand.push(x.a); if (x.d != null) d.hand.push(x.d); }); g.tb = []; return endBout(r, 1); }
+  } else if (g.conf.a && g.conf.d && g.tb.length && g.tb.every(x => x.d != null)) {
+    g.tb.forEach(x => g.disc.push(x.a, x.d)); g.tb = []; return endBout(r, 0);
   }
-  res.writeHead(404); res.end("not found");
-});
-const wss = new WebSocketServer({ server, maxPayload: 4096 });
-
-wss.on("connection", ws => {
-  let u = null, cnt = 0, ts = Date.now();
-  ws.alive = true;
-  ws.on("pong", () => ws.alive = true);
-  ws.on("message", raw => {
-    const now = Date.now();
-    if (now - ts > 1000) { ts = now; cnt = 0; }
-    if (++cnt > 20) return;
-    let m; try { m = JSON.parse(raw); } catch (e) { return; }
-    if (!m || typeof m.t !== "string") return;
-    if (m.t === "auth") {
-      if (u) return;
-      let tu = verify(m.init), id, name, un = "";
-      if (tu && tu.id) { id = String(tu.id); name = [tu.first_name, tu.last_name].filter(Boolean).join(" "); un = tu.username || ""; }
-      else if (ALLOW_DEV && m.name) { name = String(m.name).replace(/[^\w\- ]/g, "").slice(0, 20); id = "dev_" + name; }
-      else { ws.send(JSON.stringify({ t: "err", m: "Ошибка авторизации. Открой игру из Telegram" })); return ws.close(); }
-      u = getUser(id, name, un);
-      let c = conns.get(id);
-      if (c) { clearTimeout(c.timer); const old = c.ws; c.ws = ws; if (old && old !== ws) try { old.close(); } catch (e) {} }
-      else conns.set(id, c = { ws, timer: null });
-      c.ws = ws;
-      me(u);
-      const room = userRoom.get(id);
-      if (room) { if (room.g) pushState(room); else tx(id, { t: "room", code: room.code, bet: room.bet }); }
-      return;
-    }
-    if (!u) return;
-    const f = H[m.t];
-    if (f) try { f(u, m); } catch (e) { console.error(e); }
+  sendG(r);
+}
+function endBout(r, took) {
+  const g = r.g; g.tk = 0; g.conf = { a: 0, d: 0 }; g.done = {}; g.bout++;
+  const ord = []; for (let k = 0; k < r.pl.length; k++) ord.push((g.att + k) % r.pl.length);
+  ord.filter(j => j !== g.def).concat([g.def]).forEach(j => { const p = r.pl[j]; while (!p.out && p.hand.length < 6 && g.deck.length) p.hand.push(g.deck.pop()); });
+  r.pl.forEach(p => { if (!p.out && !p.hand.length && !g.deck.length) p.out = 1; srt(p, g.ts); });
+  const al = alive(r); if (al.length <= 1) return finish(r, al[0]);
+  g.att = took || r.pl[g.def].out ? nxt(r, g.def) : g.def; g.def = nxt(r, g.att); g.lim = Math.min(6, r.pl[g.def].hand.length);
+  sendG(r);
+}
+function finish(r, loser) {
+  const n = r.pl.length, bonus = Math.floor(r.bet / (n - 1));
+  r.pl.forEach(p => {
+    const u = U(p.id); let win = 2, amt = r.bet;
+    if (loser && p.id === loser.id) { win = 0; amt = 0; } else if (loser) { win = 1; amt = r.bet + bonus; }
+    u.bal += amt; send(p.id, { t: "end", win, n: amt, durak: loser ? loser.name : "" }); push(u);
   });
+  close(r); save();
+}
+function abandon(r, id) {
+  const n = r.pl.length, bonus = Math.floor(r.bet / (n - 1));
+  r.pl.forEach(p => { const u = U(p.id), me = p.id === id, amt = me ? 0 : r.bet + bonus; u.bal += amt; send(p.id, { t: "end", win: me ? 0 : 1, n: amt, durak: U(id).name, left: 1 }); push(u); });
+  close(r); save();
+}
+function view(r, p) {
+  const g = r.g, i = r.pl.indexOf(p), open = g.tb.filter(x => x.d == null).length, beaten = g.tb.length && !open, nm = j => r.pl[j].name;
+  let a = null, tx = "Смотришь за игрой";
+  if (!p.out) {
+    if (i === g.def) {
+      if (g.tk) tx = "Ты берёшь карты. Ждём подкидывающих";
+      else if (open) { a = "take"; tx = "Отбивайся: перетащи карту на атакующую или нажми «Взять»"; }
+      else if (beaten && g.conf.a && !g.conf.d) { a = "confirm"; tx = nm(g.att) + " сказал «бито». Подтверди"; }
+      else if (beaten) tx = "Отбито. Ждём: подкинут или скажут «бито»";
+      else tx = "Ходит " + nm(g.att);
+    } else if (g.tk) {
+      if (canThrow(r, i) && !g.done[i]) { a = "done"; tx = nm(g.def) + " берёт. Подкинь ещё или нажми «Готово»"; } else tx = "Ждём остальных";
+    } else if (i === g.att) {
+      if (!g.tb.length) tx = "Твой ход: перетащи карту на стол";
+      else if (open) tx = "Ждём, пока " + nm(g.def) + " отобьётся";
+      else if (!g.conf.a) { a = "bito"; tx = "Подкинь ещё или нажми «Бито»"; }
+      else tx = "Ждём подтверждения от " + nm(g.def);
+    } else tx = canThrow(r, i) ? "Можешь подкинуть карту" : "Ждёшь";
+  }
+  return {
+    t: "g", bet: r.bet, dn: g.deck.length, tc: g.tc, ts: g.ts, di: g.disc.length, tb: g.tb, tk: g.tk, h: p.hand, skin: p.skin, act: a, tx, me: p.id, out: p.out,
+    pl: r.pl.map((x, j) => ({ id: x.id, name: x.name, skin: x.skin, n: x.hand.length, out: x.out, role: j === g.att ? "a" : j === g.def ? "d" : "t", ok: j === g.att ? g.conf.a : j === g.def ? g.conf.d : g.done[j] ? 1 : 0 })),
+    ch: { can: g.disc.length > 0 && (g.cheats[p.id] || 0) < 2 && g.cb[p.id] !== g.bout && !p.out, sus: !!g.sus[p.id] }
+  };
+}
+const sendG = r => r.pl.forEach(p => send(p.id, view(r, p)));
+const room = u => { const r = ROOMS[IN[u.id]]; return r && r.g ? r : null; };
+function ev(r, m) { r.pl.forEach(p => send(p.id, { t: "ev", m })); }
+function pay(from, to, n) { const a = Math.min(n, from.bal); from.bal -= a; to.bal += a; push(from); push(to); save(); return a; }
+function cheat(u) {
+  const r = room(u); if (!r) return; const g = r.g, p = r.pl.find(x => x.id === u.id);
+  if (p.out || !g.disc.length) return err(u.id, "Нечего подменять: бито пусто");
+  if ((g.cheats[u.id] || 0) >= 2 || g.cb[u.id] === g.bout) return err(u.id, "Шулерить можно не чаще раза за ход (2 раза за игру)");
+  const c = g.disc.splice(Math.floor(Math.random() * g.disc.length), 1)[0];
+  p.hand.push(c); srt(p, g.ts); g.cheats[u.id] = (g.cheats[u.id] || 0) + 1; g.cb[u.id] = g.bout; g.sus[u.id] = g.bout;
+  send(u.id, { t: "ev", m: "Карта из рукава у тебя! Не попадись", me: 1 }); sendG(r);
+}
+function acc(u, m) {
+  const r = room(u); if (!r) return; const g = r.g, t = r.pl.find(x => x.id === m.to);
+  if (!t || t.id === u.id) return;
+  if (g.ab[u.id] === g.bout) return err(u.id, "Обвинять можно раз за ход");
+  g.ab[u.id] = g.bout;
+  if (g.sus[t.id] && g.sus[t.id] >= g.bout - 1) {
+    delete g.sus[t.id]; if (t.hand.length) { g.disc.push(t.hand.splice(Math.floor(Math.random() * t.hand.length), 1)[0]); }
+    const a = pay(U(t.id), u, r.bet); ev(r, u.name + " поймал шулера " + t.name + "! Штраф " + a + " 🪙");
+  } else { const a = pay(u, U(t.id), Math.ceil(r.bet / 2)); ev(r, u.name + " ложно обвинил " + t.name + " и заплатил " + a + " 🪙"); }
+  sendG(r);
+}
+
+/* ---------- сообщения ---------- */
+function handle(ws, m) {
+  if (m.t === "auth") return auth(ws, m);
+  const u = ws.uid && U(ws.uid); if (!u) return;
+  const n = Math.floor(+m.n);
+  switch (m.t) {
+    case "dep": if (n >= 1) { u.bal += n; save(); push(u); } break;
+    case "wd": if (n >= 1 && u.bal >= n) { u.bal -= n; save(); push(u); send(u.id, { t: "wd", n }); } else err(u.id, "Не хватает монет в банке"); break;
+    case "send": {
+      const q = String(m.to || "").replace(/^@/, "").toLowerCase(), v = Object.values(DB.users).find(x => x.id.toLowerCase() === q || (x.username || "").toLowerCase() === q);
+      if (!v || v.id === u.id) return err(u.id, "Игрок не найден");
+      if (!(n >= 1) || u.bal < n) return err(u.id, "Не хватает монет в банке");
+      u.bal -= n; v.bal += n; save(); push(u); push(v); send(v.id, { t: "in", from: u.name, n }); break;
+    }
+    case "skins": {
+      const own = (Array.isArray(m.own) ? m.own : []).filter(x => SKIDS.includes(x)); u.skins = [...new Set(["k0", ...own])];
+      u.sel = u.skins.includes(m.sel) ? m.sel : "k0"; const r = ROOMS[IN[u.id]];
+      if (r && !r.g) { r.pl.find(x => x.id === u.id).skin = u.sel; roomView(r); } save(); push(u); break;
+    }
+    case "mk": mk(u, m); break;
+    case "jn": jn(u, m); break;
+    case "start": begin(u); break;
+    case "leave": leave(u); break;
+    case "play": { const r = room(u); if (r) play(r, r.pl.findIndex(x => x.id === u.id), { c: m.c | 0, tgt: m.tgt }); break; }
+    case "act": { const r = room(u); if (r) act(r, r.pl.findIndex(x => x.id === u.id)); break; }
+    case "st": {
+      const r = ROOMS[IN[u.id]]; if (!r || !EMO.includes(m.e) || Date.now() - (ws.ls || 0) < 800) return; ws.ls = Date.now();
+      r.pl.forEach(p => send(p.id, { t: "stk", id: u.id, e: m.e })); break;
+    }
+    case "cheat": cheat(u); break;
+    case "acc": acc(u, m); break;
+  }
+}
+function onConn(ws) {
+  ws.on("message", d => { let m; try { m = JSON.parse(d); } catch (e) { return; } try { handle(ws, m); } catch (e) { console.error(e); } });
   ws.on("close", () => {
-    if (!u) return;
-    const c = conns.get(u.id);
-    if (!c || c.ws !== ws) return;
-    c.ws = null;
-    c.timer = setTimeout(() => { conns.delete(u.id); abandon(u); }, 60000); // 60 сек на переподключение
+    const id = ws.uid; if (!id || ON[id] !== ws) return; delete ON[id];
+    const r = ROOMS[IN[id]]; if (!r) return;
+    if (!r.g) { leave(U(id)); return; }
+    TMR[id] = setTimeout(() => { const rr = ROOMS[IN[id]]; if (rr && rr.g && !ON[id]) abandon(rr, id); }, 60000);
   });
-});
-setInterval(() => wss.clients.forEach(ws => { if (!ws.alive) return ws.terminate(); ws.alive = false; ws.ping(); }), 25000);
-
-server.listen(PORT, () => console.log("Lucky Nova server on :" + PORT));
+}
+module.exports = { onConn, DB };
+if (require.main === module) {
+  const idx = path.join(__dirname, "index.html");
+  const srv = http.createServer((q, s) => {
+    if (q.url === "/health") return s.end("ok");
+    fs.readFile(idx, (e, d) => { if (e) { s.end("Lucky Nova server"); } else { s.setHeader("Content-Type", "text/html; charset=utf-8"); s.end(d); } });
+  });
+  const { WebSocketServer } = require("ws"); new WebSocketServer({ server: srv }).on("connection", onConn);
+  srv.listen(PORT, () => console.log("Lucky Nova server on :" + PORT + (TOKEN ? "" : " (тестовый режим без BOT_TOKEN)")));
+}
