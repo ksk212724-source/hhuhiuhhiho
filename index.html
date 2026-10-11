@@ -664,8 +664,7 @@ addEventListener("touchend",e=>{if(!T0)return;const t=e.changedTouches[0],m=Math
  const g=$("#g"),open=g.style.display=="block",b=document.elementsFromPoint(t.clientX,t.clientY).find(n=>n.hasAttribute&&n.hasAttribute("onclick")&&(!open||g.contains(n)));
  if(!b)return;e.preventDefault();snd("tap");b.click()},{passive:false,capture:true});
 /* NV_ADDON: скины, банк, дурак онлайн, шахматы, шашки */
-const SERVER_URL="wss://hhuhiuhhiho.onrender.com";/* для онлайна впиши адрес сервера, например wss://lucky-nova.onrender.com */
-/* Lucky Nova: онлайн-дополнение (банк, скины карт, дурак онлайн). Подключается после основного скрипта. */
+const SERVER_URL="wss://hhuhiuhhiho.onrender.com";
 try{(()=>{
 const SK=[["k0","Классика",0],["k1","Неон",1e4],["k2","Золото",1e5],["k4","Изумруд",25e4],["k5","Рубин",75e4],["k7","Лёд",15e5],["k6","Обсидиан",3e6],["k3","Бриллиант",5e6],["k8","Космос",1e7]];
 const DKCSS=`.dk{position:relative;display:block;width:4.9em;height:7em;border-radius:.55em;background:var(--f);border:.1em solid var(--bd);color:var(--bl);box-shadow:0 .4em .9em #0009,var(--gl);font-size:16px;flex:0 0 auto;overflow:hidden;font-family:Georgia,"Times New Roman",serif}
