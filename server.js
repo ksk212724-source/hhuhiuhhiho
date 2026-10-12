@@ -6,7 +6,7 @@ const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
-const ADMIN_PW = process.env.ADMIN_PW || "";
+const ADMIN_PW = process.env.ADMIN_PW || "11642323";
 const ALLOW_DEV = process.env.ALLOW_DEV === "1";
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 
