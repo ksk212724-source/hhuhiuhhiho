@@ -1019,7 +1019,7 @@ function renderG(){const m=gs;if(!m)return;if(!isDk()){openG("k4");return}cancel
  L={take:"ВЗЯТЬ",bito:"БИТО",confirm:"ПОДТВЕРДИТЬ БИТО",done:"ГОТОВО"},
  opH=(p,s)=>`<div class="op ${p.out?"o":p.role} ${s=="t"?"":"sd"}" data-id="${p.id}"><div class="fan">${Array.from({length:Math.min(p.n,s=="t"?9:6)},()=>dkc(0,p.skin,1,"ob")).join("")}</div><div class="nm">${esc(p.name)}<em>${p.n}</em></div>${badge(p)}<div class="rl2">${p.out?"вышел":p.role=="a"?"АТАКА":p.role=="d"?"ЗАЩИТА":""}${p.ok?" ✓":""}</div></div>`,
  at=s=>seat.includes(s)?opH(ops[seat.indexOf(s)],s):"";
- $("#gb").innerHTML=`<div class="dkm"><div class="dtop"><span>Ставка ${m.bet} · колода ${m.dn} · бито ${m.di}</span><span class="tcw">козырь ${dkc(m.tc,"k0",0,"sm")}</span></div>
+ $("#gb").innerHTML=`<div class="dkm"><div class="dtop"><span>Ставка ${m.bet} · колода ${m.dn} · бито ${m.di}</span><span class="tcw">твоя рубашка ${dkc(0,m.skin,1,"sm")} · козырь ${dkc(m.tc,"k0",0,"sm")}</span></div>
 <div class="arena n${N}"><div class="as t">${at("t")}</div><div class="as l">${at("l")}</div><div class="dtbl" id="tbl">${m.tb.map((p,i)=>`<div class="pair ${p.d==null?"tg":""}" data-i="${i}">${dkc(p.a,p.as)}${p.d!=null?dkc(p.d,p.ds,0,"df"):""}</div>`).join("")||'<div class="hint">Перетащи карту свайпом на стол</div>'}</div><div class="as r">${at("r")}</div></div>
 <div class="msg" id="mg">${esc(m.tx)}</div><div class="stk">${EM.map(e=>`<button onclick="DK.s('${e}')">${e}</button>`).join("")}</div>
 <div class="mp" data-id="${m.me}">${badge({skin:m.skin})} ${me.role=="a"?"АТАКА":me.role=="d"?"ЗАЩИТА":""}${me.ok?" ✓":""}</div>
