@@ -6,7 +6,7 @@ const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
-const ADMIN_PW = process.env.ADMIN_PW || "11642323";
+const ADMIN_PW = process.env.ADMIN_PW || "";
 const ALLOW_DEV = process.env.ALLOW_DEV === "1";
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 
@@ -347,6 +347,13 @@ function adm(ws, m) {
     }
     case "bank": if (!u) return reply("Игрок не найден"); u.bal = Math.max(0, Math.floor(u.bal + (+m.n || 0))); push(u); save(); return reply("Банк игрока: " + u.bal);
     case "game": if (!u) return reply("Игрок не найден"); addGame(u, Math.floor(+m.n || 0)); return reply("Игровой баланс изменён на " + Math.floor(+m.n || 0));
+    case "zero": {
+      if (!u) return reply("Игрок не найден");
+      if (m.w === "bank") { u.bal = 0; push(u); save(); return reply("Банк игрока обнулён"); }
+      if (ONLINE.has(u.id)) sendU(u.id, { t: "gadj", n: -1e18 }); else u.pg = -1e18; // клиент списывает ровно столько, сколько у него есть
+      u.gb = 0; save();
+      return reply(ONLINE.has(u.id) ? "Игровой баланс обнулён" : "Игрок не в сети: баланс обнулится, когда он зайдёт в игру");
+    }
     case "ban": if (!u) return reply("Игрок не найден"); banUser(u, m.v, m.r); return reply(m.v ? "Забанен" : "Разбанен");
     case "lk": {
       const v = Math.max(0, Math.min(5, +m.v)); if (!(v >= 0) || typeof m.k !== "string") return reply("Некорректно");
@@ -357,8 +364,10 @@ function adm(ws, m) {
       if (m.v) {
         if (ABUSE.on) return reply("Абьюз уже запущен");
         ABUSE.on = 1; ABUSE.mult = Math.max(1, Math.min(1e9, Math.floor(+m.mult) || 50000));
-        wss.clients.forEach(c => { if (c.uid) tx(c, { t: "abuse", on: 1, mult: ABUSE.mult, cd: 5 }); });
-        return reply("Admin Abuse запущен у всех игроков");
+        let cnt = 0;
+        wss.clients.forEach(c => { if (c.uid) { tx(c, { t: "abuse", on: 1, mult: ABUSE.mult, cd: 5 }); cnt++; } });
+        console.log("abuse ON, получателей:", cnt);
+        return reply("Admin Abuse запущен. Получили команду: " + cnt + " онлайн");
       }
       ABUSE.on = 0;
       wss.clients.forEach(c => { if (c.uid) tx(c, { t: "abuse", on: 0 }); });
@@ -475,6 +484,8 @@ wss.on("connection", ws => {
 });
 setInterval(() => { wss.clients.forEach(ws => { ws.cnt = 0; if (!ws.isAlive) return ws.terminate(); ws.isAlive = false; try { ws.ping(); } catch (e) {} }); }, 1000 * 25);
 setInterval(() => wss.clients.forEach(ws => { ws.cnt = 0; }), 1000);
+// пока абьюз включён, раз в 15 секунд напоминаем всем онлайн-игрокам (на случай, если кто-то пропустил команду)
+setInterval(() => { if (ABUSE.on) wss.clients.forEach(c => { if (c.uid) tx(c, { t: "abuse", on: 1, mult: ABUSE.mult, cd: 0 }); }); }, 15000);
 process.on("uncaughtException", e => console.error("uncaught", e));
 process.on("unhandledRejection", e => console.error("unhandled", e));
 server.listen(PORT, () => {
