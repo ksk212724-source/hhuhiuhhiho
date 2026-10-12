@@ -1219,7 +1219,7 @@ Object.assign(H,{
  gadj(m){const n=Math.max(m.n,-bal);setBal(n,1);toast(n>=0?"Администратор начислил +"+n+" монет":"Администратор списал "+(-n)+" монет");snd(n>=0?"big":"lose")},
  adml(m){ADM.ok=1;ADM.u=m.u;LK=m.lk||LK;const q=$("#aq");ADMr();if(q)$("#aq")&&($("#aq").value=ADM.q)},
  admr(m){if(m.bad){ADM.ok=0;toast("Неверный пароль");return}if(m.m){toast(m.m);ADMreq()}}});
-
+Object.assign(window,{PAYF,PAYD,cpy,FRsel});
 conn();
 })();window.__addon=1}catch(e){window.dispatchEvent(new ErrorEvent("error",{message:"онлайн-часть: "+e.message}))}
 
