@@ -888,7 +888,8 @@ const H={
 window.NET={H,on:()=>ws&&ws.readyState==1,send,q:o=>{if(ws&&ws.readyState==1)ws.send(JSON.stringify(o))}};
 let tries=0;
 function conn(){const u=SERVER_URL||(/^https?:$/.test(location.protocol)?(location.protocol=="https:"?"wss://":"ws://")+location.host:"");if(!u)return;
- try{ws=new WebSocket(u)}catch(e){return}
+ try{fetch(u.replace(/^ws/,"http"),{mode:"no-cors"}).catch(()=>{})}catch(e){}
+try{ws=new WebSocket(u.replace(/^http/,"ws"))}catch(e){setTimeout(conn,5000);return}
  ws.onopen=()=>{tries=0;send({t:"auth",init:tg?tg.initData:"",name:new URLSearchParams(location.search).get("dev")||""})};
  ws.onclose=()=>{if(++tries<4)setTimeout(conn,3000)};
  ws.onmessage=e=>{try{const m=JSON.parse(e.data);window.__net.push("← "+m.t+" {"+Object.keys(m).join(",")+"}");dbgU();H[m.t]&&H[m.t](m)}catch(err){window.__errs.push("сообщение сервера: "+err.message)}}}
