@@ -1,22 +1,28 @@
 "use strict";
 /* Lucky Nova: игровой сервер (WebSocket). Node 18+, единственная зависимость: ws.
-   Переменные окружения:
-     BOT_TOKEN        токен бота из BotFather (обязательно: проверка входа через Telegram)
-     ADMIN_PASSWORD   пароль админ-панели (обязательно, если нужна админка)
-     UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN   (необязательно) хранение данных в Upstash Redis
-     DATA_FILE        (необязательно) путь к файлу данных, по умолчанию ./data.json
-     ALLOW_DEV=1      (необязательно) вход без Telegram по ?dev=имя, только для тестов */
+   Настройки берутся из переменных окружения Render (Render -> твой сервис -> Environment).
+   Если не хочешь возиться с окружением, впиши значения прямо в кавычки в блоке CFG ниже
+   (но тогда не выкладывай этот файл в публичный репозиторий). */
+const CFG = {
+  BOT_TOKEN: process.env.BOT_TOKEN || "",                 // токен бота из BotFather
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "11642323",       // пароль админ-панели (придумай новый)
+  RESEND_API_KEY: process.env.RESEND_API_KEY || "re_Lm1KTxff_MHyTNwTiEspTwEBCBByoHUDX",       // ключ из Resend (начинается с re_)
+  MAIL_TO: process.env.MAIL_TO || "kirillsk354@gmail.com",// куда слать письма (почта аккаунта Resend)
+  BASE_URL: process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://hhuhiuhhiho.onrender.com"
+};
+
 const http = require("http"), fs = require("fs"), crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 
 const PORT = +process.env.PORT || 3000;
-const BOT_TOKEN = process.env.BOT_TOKEN || "";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Kirrir11";
+const BOT_TOKEN = CFG.BOT_TOKEN, ADMIN_PASSWORD = CFG.ADMIN_PASSWORD;
+const RESEND_KEY = CFG.RESEND_API_KEY, MAIL_TO = CFG.MAIL_TO, BASE_URL = CFG.BASE_URL.replace(/\/$/, "");
 const ALLOW_DEV = process.env.ALLOW_DEV === "1";
 const DATA_FILE = process.env.DATA_FILE || "./data.json";
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "", REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
-const GRACE_MS = 90000;                       // сколько ждём возвращения игрока после обрыва связи
+const GRACE_MS = 90000;
 const ITEMS = { k0: "Классика", k1: "Неон", k2: "Золото", k4: "Изумруд", k5: "Рубин", k7: "Лёд", k6: "Обсидиан", k3: "Бриллиант", k8: "Космос", f1: "Золотая рамка", f2: "Неоновая рамка", f3: "Изумрудная рамка" };
+const PRICE = { k1: 10, k2: 20, k4: 30, k5: 50, k7: 75, k6: 100, k3: 150, k8: 300, f1: 149, f2: 249, f3: 349 };
 const LK_KEYS = ["slot", "candy", "crash", "roul", "mines", "hl", "poker", "bj", "durak", "chess", "checkers"];
 const EMOJI = ["😊", "🤐", "😘", "😎", "🤡", "👍", "👎"];
 
@@ -24,7 +30,7 @@ const int = x => { x = Math.floor(+x); return Number.isFinite(x) ? x : NaN; };
 const clip = (s, n) => String(s == null ? "" : s).replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, n);
 
 /* ================= хранилище ================= */
-let DB = { users: {}, lk: {} };
+let DB = { users: {}, lk: {}, orders: {} };
 async function redis(cmd) {
   const r = await fetch(REDIS_URL, { method: "POST", headers: { Authorization: "Bearer " + REDIS_TOKEN, "Content-Type": "application/json" }, body: JSON.stringify(cmd) });
   if (!r.ok) throw new Error("redis " + r.status);
@@ -33,7 +39,7 @@ async function redis(cmd) {
 async function loadDB() {
   if (REDIS_URL) { const r = await redis(["GET", "luckynova"]); if (r && r.result) DB = JSON.parse(r.result); }
   else if (fs.existsSync(DATA_FILE)) DB = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  DB.users = DB.users || {}; DB.lk = DB.lk || {};
+  DB.users = DB.users || {}; DB.lk = DB.lk || {}; DB.orders = DB.orders || {};
 }
 let dirty = false, saving = false, timer = null, timerAt = 0;
 function markDirty(urgent) {
@@ -56,9 +62,9 @@ async function flush() {
 }
 
 /* ================= пользователи и связь ================= */
-const online = new Map();            // id -> ws
-const Q = {};                        // очередь важных сообщений для тех, кто оффлайн
-const timers = new Map();            // id -> таймер ожидания возвращения
+const online = new Map();
+const Q = {};
+const timers = new Map();
 const sendWs = (ws, o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
 function send(id, o) {
   const ws = online.get(id);
@@ -96,8 +102,8 @@ function auth(ws, m) {
   if (tu) { id = String(tu.id); name = clip(tu.first_name || tu.username || "Игрок", 20); username = clip(tu.username || "", 32); }
   else if (ALLOW_DEV && m.name) { name = clip(m.name, 20); id = "dev_" + name.replace(/\W/g, "").slice(0, 16); }
   else {
-    sendWs(ws, { t: "err", m: BOT_TOKEN ? "Открой игру через Telegram" : "Сервер не настроен: нет BOT_TOKEN" });
-    return ws.close();
+    // соединение НЕ закрываем: админ-панель работает и без входа через Telegram
+    return sendWs(ws, { t: "err", m: BOT_TOKEN ? "Открой игру через Telegram" : "Сервер не настроен: нет BOT_TOKEN" });
   }
   const old = online.get(id);
   if (old && old !== ws) { old.uid = null; CR.subs.delete(old); try { old.close(); } catch (e) { } }
@@ -106,6 +112,7 @@ function auth(ws, m) {
   clearTimeout(timers.get(id)); timers.delete(id);
   pushMe(u); sendWs(ws, { t: "cfg", lk: DB.lk });
   if (u.pend) { sendWs(ws, { t: "gadj", n: u.pend }); u.pend = 0; markDirty(true); }
+  Object.values(DB.orders).filter(o => o.uid === id).forEach(o => o.st === 0 ? sendWs(ws, { t: "ordw", id: o.id }) : deliverOrder(o));
   const code = inRoom.get(id), r = code && rooms.get(code);
   if (r) { if (!r.g) sendRoom(r); else if (r.kind === "durak") { const p = r.pl.find(x => x.id === id); if (p && !p.left) send(id, view(r, p)); } }
   const q = Q[id]; if (q) { delete Q[id]; q.forEach(o => sendWs(ws, o)); }
@@ -157,13 +164,13 @@ function leave(u) {
   }
   if (r.kind === "durak") {
     const p = r.pl.find(x => x.id === u.id);
-    if (p.out) { p.left = 1; inRoom.delete(u.id); return; }   // уже вышел из игры победителем: просто уходит
+    if (p.out) { p.left = 1; inRoom.delete(u.id); return; }
     return abandonDurak(r, u.id);
   }
   endBoard(r, u.id, "left");
 }
 
-/* --- шахматы / шашки: сервер хранит ставки, очередь ходов и результат --- */
+/* --- шахматы / шашки --- */
 function startBoard(r) {
   const ids = r.pl.map(p => p.id); if (Math.random() < .5) ids.reverse();
   r.g = { side: { [ids[0]]: "w", [ids[1]]: "b" }, turn: "w" };
@@ -192,7 +199,7 @@ function boardRes(u, m) {
   else if (m.r === "draw" && r.g.side[u.id] === r.g.turn) endBoard(r, u.id, "draw");
 }
 
-/* --- дурак (подкидной, 36 карт) --- */
+/* --- дурак --- */
 const rk = c => c % 9, su = c => Math.floor(c / 9);
 const beats = (a, d, ts) => su(a) === su(d) ? rk(d) > rk(a) : su(d) === ts && su(a) !== ts;
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1);[a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -338,7 +345,7 @@ function crCash(b, mult) {
   b.c = Math.max(1, Math.floor(mult * 100) / 100);
   let n = Math.floor(b.b * mult); const k = DB.lk.crash;
   if (k != null && k !== 1) { const p = n - b.b; if (p > 0) n = Math.floor(b.b + p * k); }
-  if (online.has(b.id)) send(b.id, { t: "cwin", n, m: b.c }); else credit(b.id, n);   // оффлайн: выигрыш падает в банк
+  if (online.has(b.id)) send(b.id, { t: "cwin", n, m: b.c }); else credit(b.id, n);
   crBroadcast();
 }
 function crTick() {
@@ -363,11 +370,53 @@ function crCashReq(u) {
   crCash(b, Math.min(Math.exp(t / 5000), CR.cp));
 }
 
+/* ================= заказы и письма (Resend) ================= */
+const SECRET = ADMIN_PASSWORD || BOT_TOKEN || RESEND_KEY || "nv";
+const sign = (id, a) => crypto.createHmac("sha256", SECRET).update(id + ":" + a).digest("hex").slice(0, 24);
+async function mail(subject, html) {
+  if (!RESEND_KEY) { console.error("нет RESEND_API_KEY"); return "нет RESEND_API_KEY"; }
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + RESEND_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "Lucky Nova <onboarding@resend.dev>", to: [MAIL_TO], subject, html })
+    });
+    const t = await r.text(); if (!r.ok) console.error("mail failed:", r.status, t);
+    return r.status + " " + t;
+  } catch (e) { console.error("mail error:", e.message); return "ошибка: " + e.message; }
+}
+function newOrder(u, m) {
+  const k = String(m.k), id = String(m.id || "");
+  if (!PRICE[k] || !/^NV[A-Z0-9]{5}$/.test(id)) return err(u.id, "Неверный заказ");
+  if (u.skins.includes(k)) return err(u.id, "Это уже куплено");
+  const ex = DB.orders[id];
+  if (ex) { if (ex.uid === u.id && ex.st === 0) send(u.id, { t: "ordw", id }); return; }
+  if (Object.values(DB.orders).filter(o => o.uid === u.id && o.st === 0).length >= 5) return err(u.id, "Слишком много заказов в ожидании");
+  DB.orders[id] = { id, uid: u.id, k, rub: PRICE[k], st: 0, ts: Date.now(), dl: 0 }; markDirty(true);
+  send(u.id, { t: "ordw", id });
+  const link = a => `${BASE_URL}/o?id=${id}&a=${a}&s=${sign(id, a)}`;
+  const btn = (a, t, c) => `<a href="${link(a)}" style="display:inline-block;padding:14px 28px;margin:6px;border-radius:10px;background:${c};color:#fff;font:bold 16px sans-serif;text-decoration:none">${t}</a>`;
+  mail("Заказ " + id + ": " + ITEMS[k] + " · " + PRICE[k] + " ₽",
+    `<div style="font:15px sans-serif"><p><b>Заказ ${id}</b><br>${ITEMS[k]}<br>Сумма: <b>${PRICE[k]} ₽</b><br>Игрок: ${clip(u.name, 30)} (ID ${u.id})</p><p>Проверь перевод с кодом <b>${id}</b> в комментарии:</p>${btn("y", "✅ Да, выдать", "#2e8b57")}${btn("n", "❌ Нет", "#b03a48")}</div>`);
+}
+function deliverOrder(o) {
+  if (o.st === 0 || o.dl) return;
+  if (send(o.uid, { t: "ordr", id: o.id, ok: o.st === 1 ? 1 : 0, k: o.k })) o.dl = 1;
+}
+function resolveOrder(o, yes) {
+  if (o.st !== 0) return;
+  o.st = yes ? 1 : 2;
+  const u = DB.users[o.uid];
+  if (yes && u && !u.skins.includes(o.k)) { u.skins.push(o.k); pushMe(u); }
+  deliverOrder(o); markDirty(true);
+}
+const page = (res, b) => { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(`<meta name=viewport content="width=device-width,initial-scale=1"><body style="font:18px sans-serif;text-align:center;padding:40px;background:#111;color:#eee">${b}`); };
+
 /* ================= админка ================= */
 const pwOk = x => { const h = s => crypto.createHash("sha256").update(String(s)).digest(); return crypto.timingSafeEqual(h(x), h(ADMIN_PASSWORD)); };
-function admin(ws, u, m) {
+function admin(ws, m) {
   if (!ADMIN_PASSWORD) return sendWs(ws, { t: "err", m: "На сервере не задан ADMIN_PASSWORD" });
-  if (ws.block && ws.block > Date.now()) return;
+  if (ws.block && ws.block > Date.now()) return sendWs(ws, { t: "err", m: "Слишком много попыток. Подожди минуту" });
   if (!pwOk(m.pw)) { if (++ws.fail >= 5) { ws.block = Date.now() + 60000; ws.fail = 0; } return sendWs(ws, { t: "admr", bad: 1 }); }
   ws.fail = 0;
   const ok = msg => sendWs(ws, { t: "admr", m: msg }), tg = DB.users[m.id];
@@ -409,6 +458,7 @@ function admin(ws, u, m) {
 /* ================= обработка сообщений ================= */
 function onMessage(ws, m) {
   if (m.t === "auth") return auth(ws, m);
+  if (m.t === "adm") return admin(ws, m);          // админке вход через Telegram не нужен: хватает пароля
   const u = ws.uid && DB.users[ws.uid]; if (!u) return;
   switch (m.t) {
     case "gb": { const b = int(m.bal); if (b >= 0 && b < 1e15) { u.gb = b; markDirty(); } break; }
@@ -428,7 +478,8 @@ function onMessage(ws, m) {
       u.bal -= n; tg.bal += n; pushMe(u); pushMe(tg); markDirty(true);
       send(tg.id, { t: "in", from: u.name, n }); send(u.id, { t: "ev", m: "Отправлено " + n + " 🪙 игроку " + tg.name, me: 1 }); break;
     }
-    case "skins": if (typeof m.sel === "string" && u.skins.includes(m.sel) && u.sel !== m.sel) { u.sel = m.sel; markDirty(); } break;   // ответа нет намеренно: иначе клиент зациклится
+    case "skins": if (typeof m.sel === "string" && u.skins.includes(m.sel) && u.sel !== m.sel) { u.sel = m.sel; markDirty(); } break;
+    case "ord": newOrder(u, m); break;
     case "mk": mkRoom(u, m); break;
     case "jn": joinRoom(u, m); break;
     case "leave": leave(u); break;
@@ -444,12 +495,26 @@ function onMessage(ws, m) {
     case "cunsub": CR.subs.delete(ws); break;
     case "cbet": crBet(u, m); break;
     case "ccash": crCashReq(u); break;
-    case "adm": admin(ws, u, m); break;
   }
 }
 
-/* ================= запуск ================= */
-const server = http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Access-Control-Allow-Origin": "*" }); res.end("Lucky Nova server OK"); });
+/* ================= HTTP + запуск ================= */
+async function httpHandler(req, res) {
+  const url = new URL(req.url, "http://x");
+  if (url.pathname === "/mailtest") {   // проверка почты: /mailtest?p=ПАРОЛЬ_АДМИНА
+    if (!ADMIN_PASSWORD || !pwOk(url.searchParams.get("p") || "")) return page(res, "Нет доступа");
+    return page(res, "Ответ Resend:<br>" + clip(await mail("Тест Lucky Nova", "<p>Почта работает ✅</p>"), 300));
+  }
+  if (url.pathname === "/o") {          // кнопки «Да/Нет» из письма
+    const id = url.searchParams.get("id") || "", a = url.searchParams.get("a") === "y" ? "y" : "n", s = url.searchParams.get("s") || "", o = DB.orders[id], good = sign(id, a);
+    if (!o || s.length !== good.length || !crypto.timingSafeEqual(Buffer.from(s), Buffer.from(good))) return page(res, "Неверная ссылка");
+    if (o.st !== 0) return page(res, `Заказ ${id} уже обработан: ${o.st === 1 ? "выдано ✅" : "отклонено ❌"}`);
+    if (req.method === "POST") { resolveOrder(o, a === "y"); return page(res, a === "y" ? `Заказ ${id}: выдано ✅` : `Заказ ${id}: отклонено ❌`); }
+    return page(res, `Заказ ${id}<br>${ITEMS[o.k]} · ${o.rub} ₽<br><br><form method=POST><button style="font-size:20px;padding:14px 30px">${a === "y" ? "Подтвердить: ДА" : "Подтвердить: НЕТ"}</button></form>`);
+  }
+  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Access-Control-Allow-Origin": "*" }); res.end("Lucky Nova server OK");
+}
+const server = http.createServer((req, res) => { httpHandler(req, res).catch(e => { console.error("http error:", e); try { res.writeHead(500); res.end("error"); } catch (x) { } }); });
 const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
 wss.on("connection", ws => {
   ws.uid = null; ws.fail = 0; ws.alive = true;
@@ -474,7 +539,8 @@ function boot() {
   setInterval(crTick, 50);
   setInterval(() => wss.clients.forEach(ws => { if (!ws.alive) return ws.terminate(); ws.alive = false; try { ws.ping(); } catch (e) { } }), 30000);
   setInterval(() => { for (const r of rooms.values()) if (!r.g && Date.now() - r.ts > 30 * 60000) closeWaiting(r); }, 60000);
-  server.listen(PORT, () => console.log("Lucky Nova server on :" + PORT, REDIS_URL ? "(Upstash)" : "(file " + DATA_FILE + ")", BOT_TOKEN ? "" : "WARNING: BOT_TOKEN не задан"));
+  server.listen(PORT, () => console.log("Lucky Nova server on :" + PORT, REDIS_URL ? "(Upstash)" : "(file " + DATA_FILE + ")",
+    BOT_TOKEN ? "" : "WARNING: нет BOT_TOKEN", ADMIN_PASSWORD ? "" : "WARNING: нет ADMIN_PASSWORD", RESEND_KEY ? "" : "WARNING: нет RESEND_API_KEY"));
 }
 const shutdown = async () => { try { clearTimeout(timer); dirty = true; saving = false; await flush(); } catch (e) { } process.exit(0); };
 process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
