@@ -459,7 +459,8 @@ function admin(ws, m) {
 function onMessage(ws, m) {
   if (m.t === "auth") return auth(ws, m);
   if (m.t === "adm") return admin(ws, m);          // админке вход через Telegram не нужен: хватает пароля
-  const u = ws.uid && DB.users[ws.uid]; if (!u) return;
+  if (m.t === "adm") return admin(ws, null, m);
+const u = ws.uid && DB.users[ws.uid]; if (!u) return;
   switch (m.t) {
     case "gb": { const b = int(m.bal); if (b >= 0 && b < 1e15) { u.gb = b; markDirty(); } break; }
     case "dep": { const n = int(m.n); if (!(n >= 1) || n > 1e12) return err(u.id, "Неверная сумма"); u.bal += n; pushMe(u); markDirty(true); break; }
