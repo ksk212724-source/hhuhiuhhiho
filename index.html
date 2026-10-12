@@ -1332,6 +1332,121 @@ Object.assign(window,{PAYF,PAYD,cpy,FRsel});
 /* после переподключения повторно отправляем неподтверждённые заказы */
 {const hm=H.me;H.me=m=>{hm(m);ORD.filter(o=>!SKS.own.includes(o.k)).forEach(o=>NET.q({t:"ord",id:o.id,k:o.k,rub:RUB[o.k]}))}}
  conn();
+ /* ===== v11: админ+, абьюз, скины карт, доски, смайлы ===== */
+const MR=Math.random.bind(Math);
+const ADX={mult:50000,win:{},cx:0,abuse:0,log:[]};
+try{const s=JSON.parse(localStorage.getItem("nv_adx")||"{}");if(s.mult)ADX.mult=s.mult;if(s.win)ADX.win=s.win;if(s.cx)ADX.cx=s.cx}catch(e){}
+const adxSave=()=>{try{localStorage.setItem("nv_adx",JSON.stringify({mult:ADX.mult,win:ADX.win,cx:ADX.cx}))}catch(e){}},
+ adxOn=()=>!!ADM.ok,gopen=()=>$("#g").style.display=="block";
+const MODES=[["slot","Слоты"],["candy","Candy"],["crash","Краш"],["roul","Рулетка"],["mines","Mines"],["hl","Hi-Lo"],["poker","Покер"],["bj","Блэкджек"]],FORCE=["slot","candy"];
+let ROLL=null,PEND=null,INJ=0;
+function chance(){if(!adxOn())return null;if(ADX.abuse)return 100;const v=ADX.win[CURG];return v==null?null:+v}
+/* --- шансы: бросок при каждой ставке --- */
+{const tk0=take;take=function(){const ok=tk0();if(!ok)return ok;if(!adxOn()){ROLL=null;PEND=null;return ok}
+ resolveP();const c=chance();ROLL=c==null?null:MR()*100<c;PEND=FORCE.includes(CURG)&&ROLL?{b:bet,won:0,t:Date.now()}:null;return ok}}
+function resolveP(){const p=PEND;PEND=null;if(!p||p.won||!gopen())return;const w=Math.max(1,Math.floor(p.b*(1.4+MR()*2)));INJ=1;setBal(w);INJ=0;
+ celebrate(ADX.abuse?w*ADX.mult:w,p.b);toast("🍀 Удача: +"+fmt(ADX.abuse?w*ADX.mult:w))}
+setInterval(()=>{if(PEND&&lock===0&&Date.now()-PEND.t>700)resolveP()},300);
+{const sb0=setBal;setBal=function(d,q){
+ if(adxOn()&&!q&&d>0&&gopen()){
+  if(!INJ&&ROLL===false&&CURG!="crash"&&CURG!="roul"&&!ADX.abuse)d=0;
+  else{if(PEND)PEND.won=1;if(ADX.abuse)d=Math.min(d*ADX.mult,Math.max(0,1e15-bal))}}
+ return sb0(d,q)}}
+{const cg0=closeG;closeG=function(){resolveP();cg0()}}
+/* --- краш: свой икс, шанс, одиночный режим --- */
+{const ro=NET.on;NET.on=()=>ro()&&!(adxOn()&&CURG=="crash"&&(ADX.cx>0||ADX.abuse||ADX.win.crash!=null))}
+{const og=openG;openG=function(id){og(id);const g=G.find(x=>x.id==id);
+ if(g&&g.t=="crash"&&window.CB){const cb=window.CB;window.CB=function(){const b=$("#cb"),s=b&&/^СТАРТ/.test(b.textContent);
+  if(adxOn()&&s){let X=ADX.cx>0?ADX.cx:null;const c=chance();if(X==null&&c!=null)X=MR()*100<c?(ADX.abuse?30+MR()*170:1.8+MR()*5):1+MR()*.12;
+   if(X!=null){window.__cx=+Math.max(1,Math.min(200,X)).toFixed(2);toast("🎯 Падение: ×"+window.__cx)}}
+  try{cb()}finally{window.__cx=0}}}}}
+/* --- АБЬЮЗ: отсчёт 5 сек, дизайн, музыка --- */
+let ABT=null,ABM=null;
+function abBus(){const c=ac();if(!c)return null;if(!ABM)ABM={bus:null,t:0,i:0,nb:null};if(!ABM.bus){const g=c.createGain();g.gain.value=.9;g.connect(AU.m);ABM.bus=g}return ABM}
+function abT(f,d,ty,v,s,f2){const m=abBus();if(!m)return;const c=AU.c,o=c.createOscillator(),g=c.createGain(),t0=c.currentTime+(s||0);o.type=ty;o.frequency.setValueAtTime(f,t0);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);g.gain.setValueAtTime(.0001,t0);g.gain.exponentialRampToValueAtTime(v,t0+.01);g.gain.exponentialRampToValueAtTime(.0001,t0+d);o.connect(g);g.connect(m.bus);o.start(t0);o.stop(t0+d+.03)}
+function abHat(v){const m=abBus();if(!m)return;const c=AU.c;if(!m.nb){const n=c.sampleRate,b=c.createBuffer(1,n,c.sampleRate),a=b.getChannelData(0);for(let i=0;i<n;i++)a[i]=Math.random()*2-1;m.nb=b}
+ const s=c.createBufferSource(),f=c.createBiquadFilter(),g=c.createGain(),t0=c.currentTime;s.buffer=m.nb;f.type="highpass";f.frequency.value=7000;g.gain.setValueAtTime(v,t0);g.gain.exponentialRampToValueAtTime(.0001,t0+.05);s.connect(f);f.connect(g);g.connect(m.bus);s.start(t0,Math.random()*.5);s.stop(t0+.06)}
+const ABR=[55,43.65,65.41,49];
+function abStep(){const m=ABM;if(!m||!AU.c||AU.c.state!="running")return;const n=m.i++,s=n%16,r=ABR[(n>>4)%4];
+ if(s%4==0)abT(150,.25,"sine",.35,0,40);if(s%4==2)abHat(.05);if(s%2==1)abHat(.025);
+ if(s%2==0)abT(r*2,.13,"sawtooth",.07);abT(r*8*[1,1.5,2,1.5,1.2,1.5,2,2.4][s%8],.1,"square",.025)}
+function abuseGo(){if(!adxOn()||ADX.abuse||ABT)return;const m=document.querySelector(".setc");if(m)m.closest(".offm").remove();
+ abBus();musicStop();const e=document.createElement("div");e.className="abc";window.__abe=e;
+ e.innerHTML=`<div class="abl">⚠️ ADMIN ABUSE ×${fmt(ADX.mult)}</div><div class="abn" id="abn">5</div><div class="abl" style="font-size:13px;opacity:.7">шанс 100% · новый дизайн · музыка</div><button class="go gh2" style="width:auto;padding:10px 24px;margin-top:16px" onclick="ADXabort()">Отмена</button>`;
+ document.body.appendChild(e);let n=5;abT(660,.25,"square",.08);
+ ABT=setInterval(()=>{n--;if(n>0){const x=$("#abn");if(x){x.textContent=n;x.style.animation="none";void x.offsetWidth;x.style.animation=""}abT(660+(5-n)*110,.22,"square",.08)}else{clearInterval(ABT);ABT=null;e.remove();abuseOn()}},1000)}
+function abuseOn(){ADX.abuse=1;document.documentElement.classList.add("abz");
+ const b=document.createElement("div");b.id="abb";b.innerHTML=`<span>⚡ АБЬЮЗ ×${fmt(ADX.mult)}</span><button onclick="ADXoff()">ВЫКЛ</button>`;document.body.appendChild(b);
+ abBus();clearInterval(ABM.t);ABM.i=0;ABM.t=setInterval(abStep,107);
+ burst(40);sparks(innerWidth/2,innerHeight/2,18,["💀","⚡","💎","🔥"]);abT(80,.9,"sawtooth",.3,0,30);toast("АДМИН АБЬЮЗ: шанс 100%, выплаты ×"+fmt(ADX.mult))}
+function abuseOff(){if(!ADX.abuse)return;ADX.abuse=0;document.documentElement.classList.remove("abz");const b=$("#abb");if(b)b.remove();if(ABM){clearInterval(ABM.t);ABM.t=0}if(MODE==2)musicStart();toast("Абьюз выключен")}
+/* --- админ-панель: вкладки --- */
+const ADXtabs=[["p","👥 Игроки"],["c","🎯 Шансы"],["a","💀 Абьюз"],["t","⌨️ Команды"]];
+const chH=()=>`<div class="sm">Шанс выигрыша раунда, %. Пусто = обычный. Слоты и Candy: выигрыш гарантируется при попадании в шанс. Остальные: шанс можно понижать. Краш: задаёт точку взрыва.</div><div class="cgrid">${MODES.map(([k,n])=>`<div class="sr"><span>${n}</span><input type="number" min="0" max="100" placeholder="авто" value="${ADX.win[k]??""}" onchange="ADXw('${k}',this.value)"></div>`).join("")}</div><div class="two" style="margin:6px 0"><button class="btn" onclick="ADXall(100)">Все 100%</button><button class="btn" onclick="ADXall(0)">Все 0%</button><button class="btn" onclick="ADXall('')">Все авто</button></div><h3>Краш: точный икс</h3><div class="sr"><input id="acx" type="number" step="0.01" min="1" max="200" placeholder="Например 7.5" value="${ADX.cx||""}"><button class="btn" onclick="ADXcx($('#acx').value)">Задать</button><button class="btn" onclick="ADXcx(0)">Сброс</button></div><div class="sm">${ADX.cx?"Краш будет падать на ×"+ADX.cx:"Икс не задан"}. С иксом или шансом краш идёт в одиночном режиме (общий раунд управляется сервером).</div>`;
+const avH=()=>`<div class="sm">Запуск: отсчёт 5 секунд, затем меняется весь дизайн, включается музыка, шанс 100% во всех режимах и выплаты умножаются.</div><div class="sr"><span>Множитель выплат</span><input id="amu" type="number" min="1" value="${ADX.mult}" onchange="ADXmu(this.value)"></div>${ADX.abuse?`<button class="go alt" onclick="ADXoff()">⏹ ВЫКЛЮЧИТЬ АБЬЮЗ</button>`:`<button class="go" onclick="ADXgo()">💀 ЗАПУСТИТЬ АБЬЮЗ</button>`}<div class="sm">Работает на этом устройстве, пока ты вошёл как админ. Слоты и Candy дают гарантированный выигрыш, в остальных режимах множитель применяется к твоим выигрышам.</div>`;
+const cmH=()=>`<div class="sr"><input id="acm" placeholder="/help" autocapitalize="off" onkeydown="if(event.key=='Enter')ADXrun()"><button class="btn" onclick="ADXrun()">▶</button></div><div class="clog">${esc((ADX.log||[]).join("\n")||"Введи /help")}</div>`;
+window.ADXview=function(){const t=ADM.tab||"p";const h=`<div class="atabs">${ADXtabs.map(([k,n])=>`<button class="${k==t?"on":""}" onclick="ADXtab('${k}')">${n}</button>`).join("")}</div>`;
+ return t=="p"?h+ordH()+admH():t=="c"?h+chH():t=="a"?h+avH():h+cmH()};
+const CHL="/help — список\n/bal N — баланс\n/add N — начислить\n/god — 1 трлн\n/lvl N — уровень\n/xp N — опыт\n/jp N — рекорд\n/skins — все скины карт\n/boards — все доски\n/frames — все рамки\n/all — всё сразу\n/luck N|off — шанс всех режимов\n/crash X|off — икс краша\n/mult N — множитель абьюза\n/abuse [off]\n/rain, /fx — эффекты\n/toast текст\n/give ID N — в банк игроку\n/ban ID причина · /unban ID\n/me — статус · /clear — сброс";
+function admCmd(t){const a=t.replace(/^\//,"").split(/\s+/),c=(a[0]||"").toLowerCase(),n=+a[1],ok=a[1]!==undefined&&n==n;
+ const sk=()=>{SK.forEach(x=>{if(!SKS.own.includes(x[0]))SKS.own.push(x[0])});skSave();skPush();skApply()},bd=()=>{BT.forEach(x=>{if(!SKS.bo.includes(x[0]))SKS.bo.push(x[0])});skSave()},fr=()=>{FR.forEach(x=>{if(!SKS.own.includes(x[0]))SKS.own.push(x[0])});skSave()};
+ switch(c){
+ case"help":return CHL;
+ case"bal":if(!ok)return"нужно число";setBal(Math.floor(n)-bal,1);return"баланс "+fmt(bal);
+ case"add":if(!ok)return"нужно число";setBal(Math.floor(n),1);return"начислено "+fmt(n);
+ case"god":setBal(1e12-bal,1);return"баланс 1 000 000 000 000";
+ case"lvl":if(!ok||n<1)return"нужно число от 1";xp=lvA(Math.floor(n));try{localStorage.setItem("nv_xp",xp)}catch(e){}xpUI();return"уровень "+lvl(xp);
+ case"xp":if(!ok)return"нужно число";addXp(Math.floor(n));return"+"+n+" XP";
+ case"jp":if(!ok)return"нужно число";best=Math.floor(n);try{localStorage.setItem("nv_best",best)}catch(e){}return"рекорд "+fmt(best);
+ case"skins":sk();return"все скины карт открыты";
+ case"boards":bd();return"все доски открыты";
+ case"frames":fr();return"все рамки открыты";
+ case"all":sk();bd();fr();return"всё открыто";
+ case"luck":if(a[1]=="off"){ADX.win={};adxSave();return"шансы: авто"}if(!ok||n<0||n>100)return"число 0–100 или off";MODES.forEach(m=>ADX.win[m[0]]=n);adxSave();return"шанс всех режимов "+n+"%";
+ case"crash":if(a[1]=="off"){ADX.cx=0;adxSave();return"икс сброшен"}if(!ok||n<1)return"икс от 1 до 200 или off";ADX.cx=Math.min(200,n);adxSave();return"краш упадёт на ×"+ADX.cx;
+ case"mult":if(!ok||n<1)return"нужно число";ADX.mult=Math.floor(n);adxSave();return"множитель ×"+fmt(ADX.mult);
+ case"abuse":if(a[1]=="off"){abuseOff();return"абьюз выкл"}abuseGo();return"запуск через 5 секунд";
+ case"rain":burst(60);return"🪙";
+ case"fx":burst(40);sparks(innerWidth/2,innerHeight/2,20,["✨","⭐","💫","🎉"]);return"✨";
+ case"toast":toast(t.slice(7)||"…");return"ok";
+ case"give":if(!a[1]||!(+a[2]>=1))return"/give ID N";admS({t:"adm",pw:ADM.pw,op:"bank",id:a[1],n:Math.floor(+a[2])});return"отправлено серверу";
+ case"ban":if(!a[1])return"/ban ID причина";admS({t:"adm",pw:ADM.pw,op:"ban",id:a[1],v:1,r:a.slice(2).join(" ")});return"бан отправлен";
+ case"unban":if(!a[1])return"/unban ID";admS({t:"adm",pw:ADM.pw,op:"ban",id:a[1],v:0,r:""});return"разбан отправлен";
+ case"me":return"баланс "+fmt(bal)+" · ур. "+lvl(xp)+" · рекорд "+fmt(best)+"\nабьюз: "+(ADX.abuse?"вкл":"выкл")+" · икс: "+(ADX.cx||"—")+"\nшансы: "+(Object.keys(ADX.win).map(k=>k+"="+ADX.win[k]).join(", ")||"авто");
+ case"clear":ADX.win={};ADX.cx=0;adxSave();return"настройки сброшены";
+ default:return"неизвестная команда, /help"}}
+/* --- доски и фигуры для шахмат и шашек --- */
+const BT=[
+["bt0","Классика",0,"#a39b8b","#4b463c","#fff","#1b1b1b","#fff","#cfc6b4","#6a6a6a","#151515"],
+["bt1","Дерево",5e4,"#e8c995","#8b5a2b","#fff4dc","#2b1708","#fff1d0","#d9b57a","#7a4a22","#2b1608"],
+["bt2","Мрамор",2e5,"linear-gradient(135deg,#fff,#d7dbe0)","linear-gradient(135deg,#9aa1ad,#6b7280)","#fff","#20232b","#fff","#c9ced6","#4a4f5c","#14161c"],
+["bt3","Неон",5e5,"#0f1c3a","#1c0f3d","#4cf0ff","#ff4fd8","#7ff6ff","#1aa7c9","#ff8de8","#b01c93","0 0 6px #4cf0ff,0 0 14px #4cf0ff","0 0 6px #ff4fd8,0 0 14px #ff4fd8","0 0 0 2px #4cf0ff,0 0 26px #ff4fd8aa"],
+["bt4","Лёд",1e6,"#e6f6ff","#7fb7d9","#fff","#0f3b5c","#fff","#bfe6ff","#2f6f9a","#0b2a44"],
+["bt5","Золото",3e6,"#f4e3a1","#b8892f","#fff8dc","#3a2608","#fff3c4","#e0b84a","#6a4410","#2a1804","","","0 0 0 2px #f2c75c,0 0 24px #f2c75c88"],
+["bt6","Обсидиан",6e6,"#3a3647","#17141f","#d9d2ff","#08060d","#e5deff","#8a7bd0","#2a2438","#05030a","0 0 5px #9a7bff,0 0 2px #000","0 0 4px #9a7bff","0 0 0 2px #9a7bff66,0 0 26px #9a7bff88"],
+["bt7","Лава",1e7,"#5c1a10","#1d0804","#ffd27a","#2a0500","#ffd27a","#ff7a1a","#ff3b1a","#6a0d00","0 0 6px #ff7a1a,0 0 2px #000","0 0 6px #ff3b1a","0 0 0 2px #ff5a14,0 0 28px #ff5a1488"],
+["bt8","Сакура",2e7,"#ffe3ee","#e58fb0","#fff","#5a1a3a","#fff","#ffc2d8","#c0306a","#5a0a2a"],
+["bt9","Матрица",5e7,"#06210f","#020d06","#7dff9a","#1fbf4d","#aaffc0","#3fd878","#0f6a30","#032a10","0 0 6px #33ff7a","0 0 4px #33ff7a","0 0 0 2px #33ff7a,0 0 26px #00ff6a88"]];
+{const s=document.createElement("style");s.textContent=BT.map(b=>`body[data-bt=${b[0]}]{--bl:${b[3]};--bd:${b[4]};--pw:${b[5]};--pb:${b[6]};--cw1:${b[7]};--cw2:${b[8]};--cb1:${b[9]};--cb2:${b[10]};--pws:${b[11]||"0 0 2px #000,0 0 3px #000,0 2px 3px rgba(0,0,0,.5)"};--pbs:${b[12]||"0 0 2px rgba(255,255,255,.55),0 2px 3px rgba(0,0,0,.5)"}}${b[13]?`body[data-bt=${b[0]}] .cb{box-shadow:${b[13]}}`:""}`).join("\n");document.head.appendChild(s)}
+SKS.bo=SKS.bo||["bt0"];SKS.bsel=SKS.bsel||"bt0";
+const applyBt=()=>{document.body.dataset.bt=SKS.bsel||"bt0"};applyBt();
+const bpv=b=>{const l=/^linear/.test(b[3])?"#e6e9ee":b[3],d=/^linear/.test(b[4])?"#868d99":b[4];return `<div class="bpv" style="--l:${l};--d:${d};--pw:${b[5]};--pb:${b[6]};--pws:${b[11]||"0 0 2px #000"};--pbs:${b[12]||"0 0 2px #fff8"}"><i class="p1">♞\uFE0E</i><i class="p2">♜\uFE0E</i></div>`};
+const colH=()=>`<div class="box"><h2 style="margin-top:0">🃏 Мои скины карт</h2><div class="sm" style="margin-bottom:8px">Лицо и рубашка: так свои карты видишь ты и так их видит соперник. Нажми, чтобы выбрать.</div><div class="colr">${SK.filter(x=>SKS.own.includes(x[0])).map(x=>`<div class="colc ${x[0]==SKS.sel?"on":""}" onclick="KB.sel('${x[0]}')"><div class="skp">${dkc(8,x[0],0,"pv")}${dkc(26,x[0],0,"pv")}${dkc(0,x[0],1,"pv")}</div><b>${esc(x[1].replace(/ и \d+ рублей/,""))}</b></div>`).join("")}</div></div>`;
+const brdH=()=>`<div class="box"><h2 style="margin-top:0">♟ Доски и фигуры</h2><div class="sm" style="margin-bottom:6px">Скины для шахмат и шашек.</div>${BT.map((b,i)=>{const o=SKS.bo.includes(b[0]);return `<div class="skr ${i?"":"f"}">${bpv(b)}<div class="ski"><b>${b[1]}</b><span>${b[2]?fmt(b[2])+" 🪙":"бесплатно"}</span></div><button class="btn" ${SKS.bsel==b[0]?"disabled":""} onclick="BTx('${b[0]}')">${SKS.bsel==b[0]?"Выбрано":o?"Выбрать":"Купить"}</button></div>`}).join("")}</div>`;
+{const ob3=bonus;bonus=function(){ob3();$("#app").insertAdjacentHTML("beforeend",colH()+brdH());xpUI()}}
+/* --- смайлы в шахматах и шашках --- */
+function bEmo(s,e){const w=document.querySelector(".cbw");if(!w)return;const r=w.getBoundingClientRect(),x=r.left+r.width/2,y=s=="me"?r.bottom-60:r.top+60,el=document.createElement("div");el.className="emj";el.textContent=e;el.style.left=x+"px";el.style.top=y+"px";document.body.appendChild(el);sparks(x,y,8,["✨","💫","⭐"]);snd("pop");setTimeout(()=>el.remove(),2300)}
+Object.assign(window,{
+ ADXtab(k){ADM.tab=k;admDraw()},
+ ADXw(k,v){if(v===""||v==null)delete ADX.win[k];else ADX.win[k]=Math.max(0,Math.min(100,+v));adxSave()},
+ ADXall(v){MODES.forEach(m=>{if(v==="")delete ADX.win[m[0]];else ADX.win[m[0]]=v});adxSave();admDraw()},
+ ADXcx(v){v=+v;ADX.cx=v>=1?Math.min(200,v):0;adxSave();admDraw();toast(ADX.cx?"Краш: ×"+ADX.cx:"Икс краша сброшен")},
+ ADXmu(v){ADX.mult=Math.max(1,Math.floor(+v)||50000);adxSave();admDraw()},
+ ADXgo:abuseGo,ADXoff(){abuseOff();admDraw()},
+ ADXabort(){clearInterval(ABT);ABT=null;if(window.__abe)window.__abe.remove();if(MODE==2)musicStart()},
+ ADXrun(){const i=$("#acm");if(!i)return;const t=i.value.trim();i.value="";if(!t)return;const o=admCmd(t);ADX.log.unshift("> "+t+"\n"+o);ADX.log=ADX.log.slice(0,5);if(ADM.tab=="t")admDraw()},
+ BTx(id){const b=BT.find(x=>x[0]==id);if(!SKS.bo.includes(id)){if(bal<b[2]){toast("Не хватает монет: нужно "+fmt(b[2]));return}setBal(-b[2],1);SKS.bo.push(id);burst(14);toast("Доска куплена!")}SKS.bsel=id;skSave();applyBt();bonus()},
+ BE(e){const k=$("#g").dataset.dk;if(k!="chess"&&k!="checkers")return;bEmo("me",e);if(BM.fn)send({t:"st",e});else if(MR()<.6)setTimeout(()=>bEmo("opp",EM[rn(7)]),900)}});
 })();window.__addon=1}catch(e){window.dispatchEvent(new ErrorEvent("error",{message:"онлайн-часть: "+e.message}))}
 
 try{window.__pre=1;go("home");window.__home=1}catch(e){window.dispatchEvent(new ErrorEvent("error",{message:"главный экран: "+e.message}))}
