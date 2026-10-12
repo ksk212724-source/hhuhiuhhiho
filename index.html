@@ -1221,7 +1221,34 @@ Object.assign(H,{
  adml(m){ADM.ok=1;ADM.u=m.u;LK=m.lk||LK;const q=$("#aq");ADMr();if(q)$("#aq")&&($("#aq").value=ADM.q)},
  admr(m){if(m.bad){ADM.ok=0;toast("Неверный пароль");return}if(m.m){toast(m.m);ADMreq()}}});
 Object.assign(window,{PAYF,PAYD,cpy,FRsel});
-conn();
+/* ===== фикс админки + заказы ===== */
+ADM.o=[];ADM.w=0;
+const admSt=t=>{const z=$("#ads");if(z)z.textContent=t},
+admS=o=>{const k=ADM.w=Date.now();const ok=send(o);if(ok)setTimeout(()=>{if(ADM.w===k){ADM.w=0;admSt("Сервер не ответил на админ-запрос. Скорее всего, на сервере старый server.js без обработчика adm.")}},7000);return ok},
+admReq=()=>admS({t:"adm",pw:ADM.pw,op:"list",q:ADM.q}),
+loginH=()=>`<div class="sr" style="margin-top:12px"><input id="apw" type="password" placeholder="Пароль администратора" autocomplete="off"><button class="btn" onclick="ADMlogin()">Войти</button></div>`,
+ordH=()=>`<h3 style="margin:16px 0 6px">Заказы на оплату ${ADM.o.length?"("+ADM.o.length+")":""}</h3><div class="ul">${ADM.o.map(o=>`<div class="ur"><b>${esc(NAMES()[o.k]||o.k)} · ${RUB[o.k]||o.rub||"?"} ₽</b><span>Заказ ${esc(o.id)} · ${esc(o.name||"")} · ID ${esc(o.uid)}</span><div class="two" style="margin-top:6px"><button class="btn" onclick="ADMord('${esc(o.id)}',1)">Да</button><button class="btn" onclick="ADMord('${esc(o.id)}',0)">Нет</button></div></div>`).join("")||"<div class='ur'><span>Новых заказов нет</span></div>"}</div><button class="btn" style="width:100%" onclick="ADMrf()">Обновить</button>`,
+admDraw=()=>{const z=$("#admz");if(!z)return;const a=$("#aam"),v=a?a.value:"";z.innerHTML=ADM.ok?ordH()+admH():loginH();const n=$("#aam");if(n)n.value=v};
+Object.assign(window,{
+ openSet(){snd("tap");const e=document.createElement("div");e.className="offm";e.onclick=ev=>{if(ev.target==e)e.remove()};
+  e.innerHTML=`<div class="offc setc"><h3>Настройки</h3><div class="sr"><span>Звук и музыка</span><button class="pill" style="flex:none;padding:10px 16px" onclick="toggleSnd();this.textContent=['Выкл','Звуки','Звуки + музыка'][MODE]">${["Выкл","Звуки","Звуки + музыка"][MODE]}</button></div><div id="admz"></div><div class="sm" id="ads" style="margin-top:8px"></div><button class="go gh2" style="margin:16px 0 0" onclick="this.closest('.offm').remove()">Закрыть</button></div>`;
+  document.body.appendChild(e);admDraw();admSt(NET.on()?"":"Нет связи с сервером");if(ADM.ok)admReq()},
+ ADMlogin(){const v=$("#apw");if(!v||!v.value){toast("Введи пароль");return}ADM.pw=v.value;ADM.q="";admSt("Проверяем пароль…");admS({t:"adm",pw:ADM.pw,op:"list",q:""})},
+ ADMq(){ADM.q=$("#aq").value;admReq()},ADMrf(){admReq()},
+ ADMsel(id){ADM.t=id;admDraw()},
+ ADMord(oid,yes){const o=ADM.o.find(x=>x.id==oid);if(!o)return;
+  if(yes)send({t:"adm",pw:ADM.pw,op:"grant",id:o.uid,k:o.k});
+  send({t:"adm",pw:ADM.pw,op:"ordd",oid,yes:yes?1:0});ADM.o=ADM.o.filter(x=>x.id!=oid);admDraw();toast(yes?"Выдано":"Отклонено")}});
+Object.assign(H,{
+ adml(m){ADM.w=0;ADM.ok=1;ADM.u=m.u||[];if(m.o)ADM.o=m.o;LK=m.lk||LK;admDraw();admSt("")},
+ admr(m){ADM.w=0;if(m.bad){ADM.ok=0;admDraw();admSt("Неверный пароль");toast("Неверный пароль");return}if(m.m){toast(m.m);admReq()}},
+ ordn(m){if(!ADM.ok)return;ADM.o=ADM.o.filter(x=>x.id!=m.o.id).concat(m.o);toast("Новый заказ: "+(NAMES()[m.o.k]||m.o.k));snd("scat");admDraw()},
+ ordr(m){ORD=ORD.filter(o=>o.id!=m.id);ordSave();toast(m.ok?"Оплата подтверждена, предмет выдан":"Оплата не подтверждена");if(m.ok)snd("fan");if(onBonus())bonus()}});
+/* заказ уходит на сервер (письмо остаётся запасным вариантом) */
+{const pd=PAYD;window.PAYD=function(k,id,b){send({t:"ord",id,k,rub:RUB[k]});pd(k,id,b)}}
+/* после переподключения повторно отправляем неподтверждённые заказы */
+{const hm=H.me;H.me=m=>{hm(m);ORD.filter(o=>!SKS.own.includes(o.k)).forEach(o=>NET.q({t:"ord",id:o.id,k:o.k,rub:RUB[o.k]}))}}
+ conn();
 })();window.__addon=1}catch(e){window.dispatchEvent(new ErrorEvent("error",{message:"онлайн-часть: "+e.message}))}
 
 try{window.__pre=1;go("home");window.__home=1}catch(e){window.dispatchEvent(new ErrorEvent("error",{message:"главный экран: "+e.message}))}
