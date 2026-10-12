@@ -1,13 +1,15 @@
 "use strict";
 /* Lucky Nova: игровой сервер (WebSocket). Node 18+, единственная зависимость: ws.
-   Настройки берутся из переменных окружения Render (Render -> твой сервис -> Environment).
-   Если не хочешь возиться с окружением, впиши значения прямо в кавычки в блоке CFG ниже
-   (но тогда не выкладывай этот файл в публичный репозиторий). */
+   Настройки берутся из переменных окружения Render (Render -> сервис -> Environment).
+   BOT_TOKEN        токен бота из BotFather (обязательно, иначе игроки не войдут)
+   ADMIN_PASSWORD   пароль админ-панели (по умолчанию 11642323, лучше задать в Environment)
+   RESEND_API_KEY   по желанию: письма о новых заказах (заказы можно подтверждать и в админ-панели)
+   MAIL_TO          почта для писем */
 const CFG = {
-  BOT_TOKEN: process.env.BOT_TOKEN || "",                 // токен бота из BotFather
-  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "11642323",       // пароль админ-панели (придумай новый)
-  RESEND_API_KEY: process.env.RESEND_API_KEY || "re_Lm1KTxff_MHyTNwTiEspTwEBCBByoHUDX",       // ключ из Resend (начинается с re_)
-  MAIL_TO: process.env.MAIL_TO || "kirillsk354@gmail.com",// куда слать письма (почта аккаунта Resend)
+  BOT_TOKEN: process.env.BOT_TOKEN || "",
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "11642323",
+  RESEND_API_KEY: process.env.RESEND_API_KEY || "",
+  MAIL_TO: process.env.MAIL_TO || "kirillsk354@gmail.com",
   BASE_URL: process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://hhuhiuhhiho.onrender.com"
 };
 
@@ -25,6 +27,7 @@ const ITEMS = { k0: "Классика", k1: "Неон", k2: "Золото", k4: 
 const PRICE = { k1: 10, k2: 20, k4: 30, k5: 50, k7: 75, k6: 100, k3: 150, k8: 300, f1: 149, f2: 249, f3: 349 };
 const LK_KEYS = ["slot", "candy", "crash", "roul", "mines", "hl", "poker", "bj", "durak", "chess", "checkers"];
 const EMOJI = ["😊", "🤐", "😘", "😎", "🤡", "👍", "👎"];
+const MAXN = 1e15;
 
 const int = x => { x = Math.floor(+x); return Number.isFinite(x) ? x : NaN; };
 const clip = (s, n) => String(s == null ? "" : s).replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, n);
@@ -76,7 +79,7 @@ const err = (id, m) => send(id, { t: "err", m });
 const pushMe = u => send(u.id, { t: "me", bal: u.bal, skins: u.skins, sel: u.sel, id: u.id, name: u.name });
 function touchUser(id, name, username) {
   let u = DB.users[id];
-  if (!u) u = DB.users[id] = { id, name: "", username: "", bal: 0, gb: 0, skins: ["k0"], sel: "k0", pend: 0, seen: 0 };
+  if (!u) u = DB.users[id] = { id, name: "", username: "", bal: 0, gb: 0, skins: ["k0"], sel: "k0", pend: 0, seen: 0, ban: 0, banMsg: "" };
   u.name = name || u.name || "Игрок"; u.username = username || ""; u.seen = Date.now();
   markDirty(); return u;
 }
@@ -105,9 +108,10 @@ function auth(ws, m) {
     // соединение НЕ закрываем: админ-панель работает и без входа через Telegram
     return sendWs(ws, { t: "err", m: BOT_TOKEN ? "Открой игру через Telegram" : "Сервер не настроен: нет BOT_TOKEN" });
   }
+  const u = touchUser(id, name, username);
+  if (u.ban) return sendWs(ws, { t: "ban", m: u.banMsg || "" });   // забаненного в игру не пускаем
   const old = online.get(id);
   if (old && old !== ws) { old.uid = null; CR.subs.delete(old); try { old.close(); } catch (e) { } }
-  const u = touchUser(id, name, username);
   ws.uid = id; online.set(id, ws);
   clearTimeout(timers.get(id)); timers.delete(id);
   pushMe(u); sendWs(ws, { t: "cfg", lk: DB.lk });
@@ -374,7 +378,7 @@ function crCashReq(u) {
 const SECRET = ADMIN_PASSWORD || BOT_TOKEN || RESEND_KEY || "nv";
 const sign = (id, a) => crypto.createHmac("sha256", SECRET).update(id + ":" + a).digest("hex").slice(0, 24);
 async function mail(subject, html) {
-  if (!RESEND_KEY) { console.error("нет RESEND_API_KEY"); return "нет RESEND_API_KEY"; }
+  if (!RESEND_KEY) return "нет RESEND_API_KEY (письма отключены, заказы подтверждай в админ-панели)";
   try {
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -385,6 +389,7 @@ async function mail(subject, html) {
     return r.status + " " + t;
   } catch (e) { console.error("mail error:", e.message); return "ошибка: " + e.message; }
 }
+const ordView = o => ({ id: o.id, uid: o.uid, k: o.k, rub: o.rub, ts: o.ts, name: (DB.users[o.uid] || {}).name || "" });
 function newOrder(u, m) {
   const k = String(m.k), id = String(m.id || "");
   if (!PRICE[k] || !/^NV[A-Z0-9]{5}$/.test(id)) return err(u.id, "Неверный заказ");
@@ -392,8 +397,9 @@ function newOrder(u, m) {
   const ex = DB.orders[id];
   if (ex) { if (ex.uid === u.id && ex.st === 0) send(u.id, { t: "ordw", id }); return; }
   if (Object.values(DB.orders).filter(o => o.uid === u.id && o.st === 0).length >= 5) return err(u.id, "Слишком много заказов в ожидании");
-  DB.orders[id] = { id, uid: u.id, k, rub: PRICE[k], st: 0, ts: Date.now(), dl: 0 }; markDirty(true);
+  const o = DB.orders[id] = { id, uid: u.id, k, rub: PRICE[k], st: 0, ts: Date.now(), dl: 0 }; markDirty(true);
   send(u.id, { t: "ordw", id });
+  wss.clients.forEach(w => { if (w.adm) sendWs(w, { t: "ordn", o: ordView(o) }); });   // мгновенно в открытую админ-панель
   const link = a => `${BASE_URL}/o?id=${id}&a=${a}&s=${sign(id, a)}`;
   const btn = (a, t, c) => `<a href="${link(a)}" style="display:inline-block;padding:14px 28px;margin:6px;border-radius:10px;background:${c};color:#fff;font:bold 16px sans-serif;text-decoration:none">${t}</a>`;
   mail("Заказ " + id + ": " + ITEMS[k] + " · " + PRICE[k] + " ₽",
@@ -413,31 +419,67 @@ function resolveOrder(o, yes) {
 const page = (res, b) => { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(`<meta name=viewport content="width=device-width,initial-scale=1"><body style="font:18px sans-serif;text-align:center;padding:40px;background:#111;color:#eee">${b}`); };
 
 /* ================= админка ================= */
-const pwOk = x => { const h = s => crypto.createHash("sha256").update(String(s)).digest(); return crypto.timingSafeEqual(h(x), h(ADMIN_PASSWORD)); };
+const pwOk = x => { const h = s => crypto.createHash("sha256").update(String(s == null ? "" : s)).digest(); return crypto.timingSafeEqual(h(x), h(ADMIN_PASSWORD)); };
+const GF = { n: 0, until: 0 };   // общий лимит неверных паролей (защита от перебора)
+
+function kick(u, reason) {
+  try { if (inRoom.has(u.id)) leave(u); } catch (e) { console.error("kick leave:", e.message); }
+  clearTimeout(timers.get(u.id)); timers.delete(u.id);
+  const ws = online.get(u.id);
+  online.delete(u.id);
+  if (ws) { ws.uid = null; CR.subs.delete(ws); sendWs(ws, { t: "ban", m: reason || "" }); }
+}
+
 function admin(ws, m) {
   if (!ADMIN_PASSWORD) return sendWs(ws, { t: "err", m: "На сервере не задан ADMIN_PASSWORD" });
-  if (ws.block && ws.block > Date.now()) return sendWs(ws, { t: "err", m: "Слишком много попыток. Подожди минуту" });
-  if (!pwOk(m.pw)) { if (++ws.fail >= 5) { ws.block = Date.now() + 60000; ws.fail = 0; } return sendWs(ws, { t: "admr", bad: 1 }); }
-  ws.fail = 0;
+  if ((ws.block && ws.block > Date.now()) || GF.until > Date.now()) return sendWs(ws, { t: "err", m: "Слишком много попыток. Подожди минуту" });
+  if (!pwOk(m.pw)) {
+    ws.fail = (ws.fail || 0) + 1; GF.n++;
+    if (ws.fail >= 5) { ws.block = Date.now() + 60000; ws.fail = 0; }
+    if (GF.n >= 20) { GF.until = Date.now() + 60000; GF.n = 0; }
+    return sendWs(ws, { t: "admr", bad: 1 });
+  }
+  ws.fail = 0; GF.n = 0; ws.adm = true;
   const ok = msg => sendWs(ws, { t: "admr", m: msg }), tg = DB.users[m.id];
   switch (m.op) {
     case "list": {
       const q = clip(m.q, 40).toLowerCase().replace(/^@/, "");
-      const list = Object.values(DB.users).filter(x => !q || x.id.toLowerCase().includes(q) || x.name.toLowerCase().includes(q) || (x.username || "").toLowerCase().includes(q))
+      const list = Object.values(DB.users)
+        .filter(x => q === "#ban" ? x.ban : (!q || x.id.toLowerCase().includes(q) || (x.name || "").toLowerCase().includes(q) || (x.username || "").toLowerCase().includes(q)))
         .sort((a, b) => (online.has(b.id) - online.has(a.id)) || b.seen - a.seen).slice(0, 30)
-        .map(x => ({ id: x.id, name: x.name, username: x.username, on: online.has(x.id), bal: x.bal, gb: x.gb }));
-      return sendWs(ws, { t: "adml", u: list, lk: DB.lk });
+        .map(x => ({ id: x.id, name: x.name, username: x.username, on: online.has(x.id), bal: x.bal, gb: x.gb, ban: x.ban ? 1 : 0 }));
+      const orders = Object.values(DB.orders).filter(o => o.st === 0).sort((a, b) => a.ts - b.ts).map(ordView);
+      return sendWs(ws, { t: "adml", u: list, o: orders, lk: DB.lk });
     }
     case "bank": {
       const n = int(m.n); if (!tg || !n) return ok("Выбери игрока и введи сумму");
-      const was = tg.bal; tg.bal = Math.max(0, tg.bal + n); pushMe(tg); markDirty(true);
-      return ok("Банк " + tg.name + ": " + (tg.bal - was >= 0 ? "+" : "") + (tg.bal - was));
+      const d = Math.max(-MAXN, Math.min(MAXN, n)), was = tg.bal;
+      tg.bal = Math.max(0, tg.bal + d); pushMe(tg); markDirty(true);
+      const ch = tg.bal - was;
+      return ok("Банк " + tg.name + ": " + (ch >= 0 ? "+" : "") + ch + " (теперь " + tg.bal + ")");
     }
     case "game": {
       const n = int(m.n); if (!tg || !n) return ok("Выбери игрока и введи сумму");
-      tg.gb = Math.max(0, tg.gb + n);
-      if (online.has(tg.id)) send(tg.id, { t: "gadj", n }); else tg.pend += n;
-      markDirty(true); return ok("Игровой счёт " + tg.name + ": " + (n > 0 ? "+" : "") + n);
+      const d = Math.max(-MAXN, Math.min(MAXN, n));
+      tg.gb = Math.max(0, (tg.gb || 0) + d);
+      if (online.has(tg.id)) send(tg.id, { t: "gadj", n: d }); else tg.pend = (tg.pend || 0) + d;
+      markDirty(true); return ok("Игровой счёт " + tg.name + ": " + (d > 0 ? "+" : "") + d);
+    }
+    case "ban": {
+      if (!tg) return ok("Выбери игрока");
+      if (m.v) {
+        tg.ban = 1; tg.banMsg = clip(m.r, 100); markDirty(true); kick(tg, tg.banMsg);
+        return ok("Забанен: " + tg.name);
+      }
+      tg.ban = 0; tg.banMsg = ""; markDirty(true);
+      return ok("Разбанен: " + tg.name + " (пусть заново откроет игру)");
+    }
+    case "ordd": {
+      const o = DB.orders[String(m.oid || "")];
+      if (!o) return ok("Заказ не найден");
+      if (o.st !== 0) return ok("Заказ " + o.id + " уже обработан");
+      resolveOrder(o, !!m.yes);
+      return ok(m.yes ? "Заказ " + o.id + ": выдано " + (ITEMS[o.k] || o.k) : "Заказ " + o.id + ": отклонён");
     }
     case "lk": {
       const v = Math.min(5, Math.max(0, +m.v));
@@ -452,6 +494,7 @@ function admin(ws, m) {
       pushMe(tg); markDirty(true); send(tg.id, { t: "ev", m: "Тебе выдан предмет: " + ITEMS[m.k], me: 1 });
       return ok("Выдано " + tg.name + ": " + ITEMS[m.k]);
     }
+    default: return ok("Неизвестная команда");
   }
 }
 
@@ -459,8 +502,8 @@ function admin(ws, m) {
 function onMessage(ws, m) {
   if (m.t === "auth") return auth(ws, m);
   if (m.t === "adm") return admin(ws, m);          // админке вход через Telegram не нужен: хватает пароля
-  if (m.t === "adm") return admin(ws, null, m);
-const u = ws.uid && DB.users[ws.uid]; if (!u) return;
+  const u = ws.uid && DB.users[ws.uid]; if (!u) return;
+  if (u.ban) return;
   switch (m.t) {
     case "gb": { const b = int(m.bal); if (b >= 0 && b < 1e15) { u.gb = b; markDirty(); } break; }
     case "dep": { const n = int(m.n); if (!(n >= 1) || n > 1e12) return err(u.id, "Неверная сумма"); u.bal += n; pushMe(u); markDirty(true); break; }
@@ -475,6 +518,7 @@ const u = ws.uid && DB.users[ws.uid]; if (!u) return;
       const tg = DB.users[to] || Object.values(DB.users).find(x => x.username && x.username.toLowerCase() === to);
       if (!tg) return err(u.id, "Игрок не найден (он должен хотя бы раз открыть игру)");
       if (tg.id === u.id) return err(u.id, "Нельзя отправить самому себе");
+      if (tg.ban) return err(u.id, "Этому игроку нельзя отправить монеты");
       if (u.bal < n) return err(u.id, "Недостаточно монет в банке");
       u.bal -= n; tg.bal += n; pushMe(u); pushMe(tg); markDirty(true);
       send(tg.id, { t: "in", from: u.name, n }); send(u.id, { t: "ev", m: "Отправлено " + n + " 🪙 игроку " + tg.name, me: 1 }); break;
@@ -513,7 +557,7 @@ async function httpHandler(req, res) {
     if (req.method === "POST") { resolveOrder(o, a === "y"); return page(res, a === "y" ? `Заказ ${id}: выдано ✅` : `Заказ ${id}: отклонено ❌`); }
     return page(res, `Заказ ${id}<br>${ITEMS[o.k]} · ${o.rub} ₽<br><br><form method=POST><button style="font-size:20px;padding:14px 30px">${a === "y" ? "Подтвердить: ДА" : "Подтвердить: НЕТ"}</button></form>`);
   }
-  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Access-Control-Allow-Origin": "*" }); res.end("Lucky Nova server OK");
+  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Access-Control-Allow-Origin": "*" }); res.end("Lucky Nova server OK v10-admin");
 }
 const server = http.createServer((req, res) => { httpHandler(req, res).catch(e => { console.error("http error:", e); try { res.writeHead(500); res.end("error"); } catch (x) { } }); });
 const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
@@ -541,7 +585,7 @@ function boot() {
   setInterval(() => wss.clients.forEach(ws => { if (!ws.alive) return ws.terminate(); ws.alive = false; try { ws.ping(); } catch (e) { } }), 30000);
   setInterval(() => { for (const r of rooms.values()) if (!r.g && Date.now() - r.ts > 30 * 60000) closeWaiting(r); }, 60000);
   server.listen(PORT, () => console.log("Lucky Nova server on :" + PORT, REDIS_URL ? "(Upstash)" : "(file " + DATA_FILE + ")",
-    BOT_TOKEN ? "" : "WARNING: нет BOT_TOKEN", ADMIN_PASSWORD ? "" : "WARNING: нет ADMIN_PASSWORD", RESEND_KEY ? "" : "WARNING: нет RESEND_API_KEY"));
+    BOT_TOKEN ? "" : "WARNING: нет BOT_TOKEN", ADMIN_PASSWORD ? "" : "WARNING: нет ADMIN_PASSWORD", RESEND_KEY ? "" : "(письма отключены)"));
 }
 const shutdown = async () => { try { clearTimeout(timer); dirty = true; saving = false; await flush(); } catch (e) { } process.exit(0); };
 process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
