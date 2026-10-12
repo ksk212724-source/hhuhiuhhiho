@@ -808,7 +808,7 @@ addEventListener("touchend",e=>{if(!T0)return;const t=e.changedTouches[0],m=Math
  if(!b)return;e.preventDefault();snd("tap");b.click()},{passive:false,capture:true});
 document.addEventListener("pointerdown",e=>{const t=e.target.closest&&e.target.closest("button,.tile,.ban div,.mt,.rb,.pill");if(!t||t.disabled)return;const r=document.createElement("i");r.className="rp";r.style.left=e.clientX+"px";r.style.top=e.clientY+"px";document.body.appendChild(r);setTimeout(()=>r.remove(),700)},true);
 /* NV_ADDON: скины, банк, дурак онлайн, шахматы, шашки */
-const SERVER_URL="";/* для онлайна впиши адрес сервера, например wss://lucky-nova.onrender.com */
+const SERVER_URL="https://hhuhiuhhiho.onrender.com";/* для онлайна впиши адрес сервера, например wss://lucky-nova.onrender.com */
 /* Lucky Nova: онлайн-дополнение (банк, скины карт, дурак онлайн). Подключается после основного скрипта. */
 try{(()=>{
 const SK=[["k0","Классика",0],["k1","Неон",1e4],["k2","Золото",1e5],["k4","Изумруд",25e4],["k5","Рубин",75e4],["k7","Лёд",15e5],["k6","Обсидиан",3e6],["k3","Бриллиант",5e6],["k8","Космос",1e7]];
