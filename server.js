@@ -6,14 +6,15 @@ const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
-const ADMIN_PW = process.env.ADMIN_PW || "11642323";
+const ADMIN_PW = process.env.ADMIN_PW || "";
 const ALLOW_DEV = process.env.ALLOW_DEV === "1";
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const KSK = new Set(Array.from({ length: 16 }, (_, i) => "k" + i));
 const FRM = ["f1", "f2", "f3"];
-const RUB = { k1: 10, k2: 20, k4: 30, k5: 50, k7: 75, k6: 100, k3: 150, k8: 300, f1: 149, f2: 249, f3: 349 };
+const RUB = { k1: 10, k2: 20, k4: 30, k5: 40, k7: 50, k6: 60, k3: 70, k8: 80, k9: 90, k10: 100, k11: 110, k12: 120, k13: 130, k14: 140, k15: 150,
+  bt1: 10, bt2: 20, bt3: 30, bt4: 40, bt5: 50, bt6: 60, bt7: 70, bt8: 80, bt9: 90, f1: 149, f2: 249, f3: 349 }; // цена в рублях
 const FRAME_BONUS = { f1: 149, f2: 249, f3: 349 }; // монет на игровой баланс за рамку
 const EM = ["😊", "🤐", "😘", "😎", "🤡", "👍", "👎"];
 
@@ -311,7 +312,7 @@ const sha = s => crypto.createHash("sha256").update(String(s)).digest();
 const pwOk = pw => !!ADMIN_PW && crypto.timingSafeEqual(sha(pw || ""), sha(ADMIN_PW));
 const ADMS = () => [...wss.clients].filter(c => c.adm);
 function grantItem(u, k) {
-  if (!KSK.has(k) && !FRM.includes(k)) return false;
+  if (!RUB[k]) return false;
   if (!u.skins.includes(k)) {
     u.skins.push(k);
     if (FRAME_BONUS[k]) addGame(u, FRAME_BONUS[k]);
@@ -380,11 +381,8 @@ const H = {
     u.bal -= n; t.bal += n; push(u); push(t); save();
     sendU(t.id, { t: "in", from: u.name, n });
   },
-  skins(u, m) {
-    const own = Array.isArray(m.own) ? m.own.filter(k => KSK.has(k)) : [];
-    u.skins = [...new Set([...u.skins, ...own])];
-    if (typeof m.sel === "string" && KSK.has(m.sel) && u.skins.includes(m.sel)) u.sel = m.sel;
-    save();
+  skins(u, m) { // скины покупаются только за рубли и выдаются сервером; клиент может лишь выбрать уже купленный
+    if (typeof m.sel === "string" && KSK.has(m.sel) && u.skins.includes(m.sel)) { u.sel = m.sel; save(); }
   },
   ord(u, m) {
     const id = String(m.id || "").slice(0, 20), k = String(m.k || "");
