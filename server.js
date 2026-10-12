@@ -10,7 +10,7 @@ const http = require("http"), fs = require("fs"), crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 
 const PORT = +process.env.PORT || 3000;
-const BOT_TOKEN = process.env.BOT_TOKEN || "8818255064:AAGum6f370j9BQPQ6d9tvhBDZFDVc7mIuYg";
+const BOT_TOKEN = process.env.BOT_TOKEN || "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Kirrir11";
 const ALLOW_DEV = process.env.ALLOW_DEV === "1";
 const DATA_FILE = process.env.DATA_FILE || "./data.json";
