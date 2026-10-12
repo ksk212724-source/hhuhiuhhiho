@@ -962,7 +962,7 @@ stk(m){const k=$("#g").dataset.dk;if(k=="chess"||k=="checkers"){if(m.id!=B.id)bE
  end(m){gs=null;rm=null;toast(m.left?(m.win?"Соперник вышел: +"+m.n:"Ты вышел: ставка потеряна"):m.kind?(m.win==1?"Победа! +"+m.n:m.win==2?"Ничья: ставки возвращены":"Поражение. Ставка потеряна"):m.win==1?"Победа! "+m.durak+" остаётся дураком. +"+m.n:m.win==2?"Ничья, ставки возвращены":"Ты остался в дураках. Ставка потеряна");
   if(m.win==1){burst();snd("fan")}else snd("lose");if(isDk())LBY()}};
 window.NET={H,on:()=>ws&&ws.readyState==1,send,q:o=>{if(ws&&ws.readyState==1)ws.send(JSON.stringify(o))}};
-let tries=0;
+H.abuse=m=>{if(m.on){ADX.mult=m.mult||ADX.mult;if(m.cd)abuseGo();else if(!ADX.abuse&&!ABT)abuseOn()}else{abuseOff();ADXabort()}};let tries=0;
 function conn(){const u=SERVER_URL||(/^https?:$/.test(location.protocol)?(location.protocol=="https:"?"wss://":"ws://")+location.host:"");if(!u)return;
  try{fetch(u.replace(/^ws/,"http"),{mode:"no-cors"}).catch(()=>{})}catch(e){}
 try{ws=new WebSocket(u.replace(/^http/,"ws"))}catch(e){setTimeout(conn,5000);return}
@@ -1307,7 +1307,7 @@ z.innerHTML=ADM.ok?(window.ADXview?ADXview():ordH()+admH()):loginH();
  ["aam","arz","aq"].forEach((i,k)=>{const e=document.getElementById(i);if(e&&keep[k]!=null)e.value=keep[k]})};
 Object.assign(window,{
  openSet(){snd("tap");const e=document.createElement("div");e.className="offm";e.onclick=ev=>{if(ev.target==e)e.remove()};
-  e.innerHTML=`<div class="offc setc"><h3>Настройки</h3><div class="sr"><span>Звук и музыка</span><button class="pill" style="flex:none;padding:10px 16px" onclick="toggleSnd();this.textContent=['Выкл','Звуки','Звуки + музыка'][MODE]">${["Выкл","Звуки","Звуки + музыка"][MODE]}</button></div><div class="sr"><span>💀 Admin Abuse</span><button class="pill" style="flex:none;padding:10px 16px" onclick="ADXgo()">Запустить</button></div><div id="admz"></div><div class="sm" id="ads" style="margin-top:8px"></div><button class="go gh2" style="margin:16px 0 0" onclick="this.closest('.offm').remove()">Закрыть</button></div>`;
+  e.innerHTML=`<div class="offc setc"><h3>Настройки</h3><div class="sr"><span>Звук и музыка</span><button class="pill" style="flex:none;padding:10px 16px" onclick="toggleSnd();this.textContent=['Выкл','Звуки','Звуки + музыка'][MODE]">${["Выкл","Звуки","Звуки + музыка"][MODE]}</button></div><div id="admz"></div><div class="sm" id="ads" style="margin-top:8px"></div><button class="go gh2" style="margin:16px 0 0" onclick="this.closest('.offm').remove()">Закрыть</button></div>`;
   document.body.appendChild(e);admDraw();admSt(NET.on()?"":"Нет связи с сервером");if(ADM.ok)admReq()},
  ADMlogin(){const v=$("#apw");if(!v||!v.value){toast("Введи пароль");return}ADM.pw=v.value;ADM.q="";admSt("Проверяем пароль…");admS({t:"adm",pw:ADM.pw,op:"list",q:""})},
  ADMq(q){ADM.q=q!==undefined?q:$("#aq").value;admReq()},ADMrf(){admReq()},
@@ -1373,11 +1373,11 @@ function abStep(){const m=ABM;if(!m||!AU.c||AU.c.state!="running")return;const n
  if(s%2==0)abT(r*2,.13,"sawtooth",.07);abT(r*8*[1,1.5,2,1.5,1.2,1.5,2,2.4][s%8],.1,"square",.025)}
 function abuseGo(){if(ADX.abuse||ABT)return;const m=document.querySelector(".setc");if(m)m.closest(".offm").remove();
  abBus();musicStop();const e=document.createElement("div");e.className="abc";window.__abe=e;
- e.innerHTML=`<div class="abl">⚠️ ADMIN ABUSE ×${fmt(ADX.mult)}</div><div class="abn" id="abn">5</div><div class="abl" style="font-size:13px;opacity:.7">шанс 100% · новый дизайн · музыка</div><button class="go gh2" style="width:auto;padding:10px 24px;margin-top:16px" onclick="ADXabort()">Отмена</button>`;
+ e.innerHTML=`<div class="abl">⚠️ ADMIN ABUSE ×${fmt(ADX.mult)}</div><div class="abn" id="abn">5</div><div class="abl" style="font-size:13px;opacity:.7">шанс 100% · новый дизайн · музыка</div>`;
  document.body.appendChild(e);let n=5;abT(660,.25,"square",.08);
  ABT=setInterval(()=>{n--;if(n>0){const x=$("#abn");if(x){x.textContent=n;x.style.animation="none";void x.offsetWidth;x.style.animation=""}abT(660+(5-n)*110,.22,"square",.08)}else{clearInterval(ABT);ABT=null;e.remove();abuseOn()}},1000)}
 function abuseOn(){ADX.abuse=1;document.documentElement.classList.add("abz");
- const b=document.createElement("div");b.id="abb";b.innerHTML=`<span>⚡ АБЬЮЗ ×${fmt(ADX.mult)}</span><button onclick="ADXoff()">ВЫКЛ</button>`;document.body.appendChild(b);
+ const b=document.createElement("div");b.id="abb";b.innerHTML=`<span>⚡ АБЬЮЗ ×${fmt(ADX.mult)}</span>${ADM.ok?'<button onclick="ADXoff()">ВЫКЛ</button>':""}`;document.body.appendChild(b);
  abBus();clearInterval(ABM.t);ABM.i=0;ABM.t=setInterval(abStep,107);
  burst(40);sparks(innerWidth/2,innerHeight/2,18,["💀","⚡","💎","🔥"]);abT(80,.9,"sawtooth",.3,0,30);toast("АДМИН АБЬЮЗ: шанс 100%, выплаты ×"+fmt(ADX.mult))}
 function abuseOff(){if(!ADX.abuse)return;ADX.abuse=0;document.documentElement.classList.remove("abz");const b=$("#abb");if(b)b.remove();if(ABM){clearInterval(ABM.t);ABM.t=0}if(MODE==2)musicStart();toast("Абьюз выключен")}
@@ -1406,7 +1406,7 @@ function admCmd(t){const a=t.replace(/^\//,"").split(/\s+/),c=(a[0]||"").toLower
  case"luck":if(a[1]=="off"){ADX.win={};adxSave();return"шансы: авто"}if(!ok||n<0||n>100)return"число 0–100 или off";MODES.forEach(m=>ADX.win[m[0]]=n);adxSave();return"шанс всех режимов "+n+"%";
  case"crash":if(a[1]=="off"){ADX.cx=0;adxSave();return"икс сброшен"}if(!ok||n<1)return"икс от 1 до 200 или off";ADX.cx=Math.min(200,n);adxSave();return"краш упадёт на ×"+ADX.cx;
  case"mult":if(!ok||n<1)return"нужно число";ADX.mult=Math.floor(n);adxSave();return"множитель ×"+fmt(ADX.mult);
- case"abuse":if(a[1]=="off"){abuseOff();return"абьюз выкл"}abuseGo();return"запуск через 5 секунд";
+ case"abuse":if(a[1]=="off"){ADXoff();return"остановка отправлена всем"}ADXgo();return"запуск отправлен: у всех игроков через 5 секунд";
  case"rain":burst(60);return"🪙";
  case"fx":burst(40);sparks(innerWidth/2,innerHeight/2,20,["✨","⭐","💫","🎉"]);return"✨";
  case"toast":toast(t.slice(7)||"…");return"ok";
@@ -1443,7 +1443,7 @@ Object.assign(window,{
  ADXall(v){MODES.forEach(m=>{if(v==="")delete ADX.win[m[0]];else ADX.win[m[0]]=v});adxSave();admDraw()},
  ADXcx(v){v=+v;ADX.cx=v>=1?Math.min(200,v):0;adxSave();admDraw();toast(ADX.cx?"Краш: ×"+ADX.cx:"Икс краша сброшен")},
  ADXmu(v){ADX.mult=Math.max(1,Math.floor(+v)||50000);adxSave();admDraw()},
- ADXgo:abuseGo,ADXoff(){abuseOff();admDraw()},
+ ADXgo(){if(!ADM.ok)return;admS({t:"adm",pw:ADM.pw,op:"abuse",v:1,mult:ADX.mult})},ADXoff(){if(!ADM.ok)return;admS({t:"adm",pw:ADM.pw,op:"abuse",v:0})},
  ADXabort(){clearInterval(ABT);ABT=null;if(window.__abe)window.__abe.remove();if(MODE==2)musicStart()},
  ADXrun(){const i=$("#acm");if(!i)return;const t=i.value.trim();i.value="";if(!t)return;const o=admCmd(t);ADX.log.unshift("> "+t+"\n"+o);ADX.log=ADX.log.slice(0,5);if(ADM.tab=="t")admDraw()},
  BTx(id){if(!SKS.bo.includes(id)){PAYF(id);return}SKS.bsel=id;skSave();applyBt();bonus()},
