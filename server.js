@@ -1,10 +1,11 @@
 "use strict";
 /* Lucky Nova: игровой сервер (WebSocket). Node 18+, единственная зависимость: ws.
    Настройки берутся из переменных окружения Render (Render -> сервис -> Environment).
-   BOT_TOKEN        токен бота из BotFather (обязательно, иначе игроки не войдут)
+   BOT_TOKEN        НЕ обязателен. Если задан, подпись Telegram проверяется, если нет, игроки входят без проверки
    ADMIN_PASSWORD   пароль админ-панели (по умолчанию 11642323, лучше задать в Environment)
    RESEND_API_KEY   по желанию: письма о новых заказах (заказы можно подтверждать и в админ-панели)
-   MAIL_TO          почта для писем */
+   MAIL_TO          почта для писем
+   Админ-панель: https://ТВОЙ-САЙТ.onrender.com/admin (файл admin.html лежит рядом с server.js) */
 const CFG = {
   BOT_TOKEN: process.env.BOT_TOKEN || "",
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "11642323",
@@ -13,13 +14,13 @@ const CFG = {
   BASE_URL: process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://hhuhiuhhiho.onrender.com"
 };
 
-const http = require("http"), fs = require("fs"), crypto = require("crypto");
+const http = require("http"), fs = require("fs"), path = require("path"), crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 
 const PORT = +process.env.PORT || 3000;
 const BOT_TOKEN = CFG.BOT_TOKEN, ADMIN_PASSWORD = CFG.ADMIN_PASSWORD;
 const RESEND_KEY = CFG.RESEND_API_KEY, MAIL_TO = CFG.MAIL_TO, BASE_URL = CFG.BASE_URL.replace(/\/$/, "");
-const ALLOW_DEV = process.env.ALLOW_DEV === "1";
+const ALLOW_DEV = process.env.ALLOW_DEV !== "0";
 const DATA_FILE = process.env.DATA_FILE || "./data.json";
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "", REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
 const GRACE_MS = 90000;
@@ -85,16 +86,21 @@ function touchUser(id, name, username) {
 }
 function credit(id, n) { const u = DB.users[id]; if (!u) return; u.bal += n; pushMe(u); markDirty(true); }
 
+/* Без BOT_TOKEN подпись Telegram не проверяется: данные пользователя берутся как есть.
+   Если BOT_TOKEN задан, проверка работает как раньше. */
 function verifyInit(init) {
-  if (!BOT_TOKEN || !init) return null;
-  const p = new URLSearchParams(init), hash = p.get("hash");
-  if (!hash) return null;
-  p.delete("hash");
-  const dcs = [...p.entries()].map(([k, v]) => k + "=" + v).sort().join("\n");
-  const secret = crypto.createHmac("sha256", "WebAppData").update(BOT_TOKEN).digest();
-  const h = crypto.createHmac("sha256", secret).update(dcs).digest("hex");
-  if (h.length !== hash.length || !crypto.timingSafeEqual(Buffer.from(h), Buffer.from(hash))) return null;
-  if (Date.now() / 1000 - (+p.get("auth_date") || 0) > 86400 * 3) return null;
+  if (!init) return null;
+  const p = new URLSearchParams(init);
+  if (BOT_TOKEN) {
+    const hash = p.get("hash");
+    if (!hash) return null;
+    p.delete("hash");
+    const dcs = [...p.entries()].map(([k, v]) => k + "=" + v).sort().join("\n");
+    const secret = crypto.createHmac("sha256", "WebAppData").update(BOT_TOKEN).digest();
+    const h = crypto.createHmac("sha256", secret).update(dcs).digest("hex");
+    if (h.length !== hash.length || !crypto.timingSafeEqual(Buffer.from(h), Buffer.from(hash))) return null;
+    if (Date.now() / 1000 - (+p.get("auth_date") || 0) > 86400 * 3) return null;
+  }
   try { const u = JSON.parse(p.get("user")); return u && u.id ? u : null; } catch (e) { return null; }
 }
 
@@ -105,8 +111,8 @@ function auth(ws, m) {
   if (tu) { id = String(tu.id); name = clip(tu.first_name || tu.username || "Игрок", 20); username = clip(tu.username || "", 32); }
   else if (ALLOW_DEV && m.name) { name = clip(m.name, 20); id = "dev_" + name.replace(/\W/g, "").slice(0, 16); }
   else {
-    // соединение НЕ закрываем: админ-панель работает и без входа через Telegram
-    return sendWs(ws, { t: "err", m: BOT_TOKEN ? "Открой игру через Telegram" : "Сервер не настроен: нет BOT_TOKEN" });
+    // соединение НЕ закрываем: админ-панель работает и без входа игрока
+    return sendWs(ws, { t: "err", m: "Не удалось войти. Открой игру заново" });
   }
   const u = touchUser(id, name, username);
   if (u.ban) return sendWs(ws, { t: "ban", m: u.banMsg || "" });   // забаненного в игру не пускаем
@@ -501,7 +507,7 @@ function admin(ws, m) {
 /* ================= обработка сообщений ================= */
 function onMessage(ws, m) {
   if (m.t === "auth") return auth(ws, m);
-  if (m.t === "adm") return admin(ws, m);          // админке вход через Telegram не нужен: хватает пароля
+  if (m.t === "adm") return admin(ws, m);          // админке вход игрока не нужен: хватает пароля
   const u = ws.uid && DB.users[ws.uid]; if (!u) return;
   if (u.ban) return;
   switch (m.t) {
@@ -546,6 +552,13 @@ function onMessage(ws, m) {
 /* ================= HTTP + запуск ================= */
 async function httpHandler(req, res) {
   const url = new URL(req.url, "http://x");
+  if (url.pathname === "/admin") {      // админ-панель: файл admin.html лежит рядом с server.js
+    try {
+      const html = fs.readFileSync(path.join(__dirname, "admin.html"));
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(html);
+    } catch (e) { return page(res, "Файл admin.html не найден рядом с server.js"); }
+  }
   if (url.pathname === "/mailtest") {   // проверка почты: /mailtest?p=ПАРОЛЬ_АДМИНА
     if (!ADMIN_PASSWORD || !pwOk(url.searchParams.get("p") || "")) return page(res, "Нет доступа");
     return page(res, "Ответ Resend:<br>" + clip(await mail("Тест Lucky Nova", "<p>Почта работает ✅</p>"), 300));
@@ -557,7 +570,7 @@ async function httpHandler(req, res) {
     if (req.method === "POST") { resolveOrder(o, a === "y"); return page(res, a === "y" ? `Заказ ${id}: выдано ✅` : `Заказ ${id}: отклонено ❌`); }
     return page(res, `Заказ ${id}<br>${ITEMS[o.k]} · ${o.rub} ₽<br><br><form method=POST><button style="font-size:20px;padding:14px 30px">${a === "y" ? "Подтвердить: ДА" : "Подтвердить: НЕТ"}</button></form>`);
   }
-  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Access-Control-Allow-Origin": "*" }); res.end("Lucky Nova server OK v10-admin");
+  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Access-Control-Allow-Origin": "*" }); res.end("Lucky Nova server OK v11-admin");
 }
 const server = http.createServer((req, res) => { httpHandler(req, res).catch(e => { console.error("http error:", e); try { res.writeHead(500); res.end("error"); } catch (x) { } }); });
 const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
@@ -585,7 +598,7 @@ function boot() {
   setInterval(() => wss.clients.forEach(ws => { if (!ws.alive) return ws.terminate(); ws.alive = false; try { ws.ping(); } catch (e) { } }), 30000);
   setInterval(() => { for (const r of rooms.values()) if (!r.g && Date.now() - r.ts > 30 * 60000) closeWaiting(r); }, 60000);
   server.listen(PORT, () => console.log("Lucky Nova server on :" + PORT, REDIS_URL ? "(Upstash)" : "(file " + DATA_FILE + ")",
-    BOT_TOKEN ? "" : "WARNING: нет BOT_TOKEN", ADMIN_PASSWORD ? "" : "WARNING: нет ADMIN_PASSWORD", RESEND_KEY ? "" : "(письма отключены)"));
+    BOT_TOKEN ? "" : "(без BOT_TOKEN)", ADMIN_PASSWORD ? "" : "WARNING: нет ADMIN_PASSWORD", RESEND_KEY ? "" : "(письма отключены)"));
 }
 const shutdown = async () => { try { clearTimeout(timer); dirty = true; saving = false; await flush(); } catch (e) { } process.exit(0); };
 process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
