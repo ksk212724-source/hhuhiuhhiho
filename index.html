@@ -1296,7 +1296,7 @@ admH=()=>{const s=ADM.u.find(x=>x.id==ADM.t);return `<h3 style="margin:16px 0 6p
 <div class="sm" style="margin:6px 0">${s?"Выбран: <b>"+esc(s.name)+"</b> (ID "+esc(s.id)+")"+(s.ban?" · 🚫 забанен":""):"Выбери игрока из списка"}</div>
 <div class="sr"><input id="aam" type="number" inputmode="numeric" placeholder="Сумма (любая)"></div>
 <div class="two"><button class="btn" onclick="ADMo('bank',1)">+ в банк</button><button class="btn" onclick="ADMo('bank',-1)">− из банка</button></div>
-<div class="two" style="margin-top:8px"><button class="btn" onclick="ADMo('game',1)">+ в игру</button><button class="btn" onclick="ADMo('game',-1)">− из игры</button></div>
+<div class="two" style="margin-top:8px"><button class="btn" onclick="ADMo('game',1)">+ в игру</button><button class="btn" onclick="ADMo('game',-1)">− из игры</button></div><div class="two" style="margin-top:8px"><button class="btn" onclick="ADMz('game')">⛔ Обнулить игровой</button><button class="btn" onclick="ADMz('bank')">⛔ Обнулить банк</button></div>
 <h3 style="margin:18px 0 4px">Бан</h3>
 <div class="sr"><input id="arz" placeholder="Причина (необязательно)"></div>
 <div class="two"><button class="btn" onclick="ADMban(1)">🚫 Забанить</button><button class="btn" onclick="ADMban(0)">♻️ Разбанить</button></div>
@@ -1312,7 +1312,7 @@ Object.assign(window,{
  ADMlogin(){const v=$("#apw");if(!v||!v.value){toast("Введи пароль");return}ADM.pw=v.value;ADM.q="";admSt("Проверяем пароль…");admS({t:"adm",pw:ADM.pw,op:"list",q:""})},
  ADMq(q){ADM.q=q!==undefined?q:$("#aq").value;admReq()},ADMrf(){admReq()},
  ADMsel(id){ADM.t=id;admDraw()},
- ADMo(op,sg){const n=Math.floor(+$("#aam").value);if(!ADM.t||!(n>=1)){toast("Выбери игрока и введи сумму");return}admS({t:"adm",pw:ADM.pw,op,id:ADM.t,n:n*sg})},
+ ADMz(w){if(!ADM.t){toast("Выбери игрока");return}admS({t:"adm",pw:ADM.pw,op:"zero",id:ADM.t,w})},ADMo(op,sg){const n=Math.floor(+$("#aam").value);if(!ADM.t||!(n>=1)){toast("Выбери игрока и введи сумму");return}admS({t:"adm",pw:ADM.pw,op,id:ADM.t,n:n*sg})},
  ADMban(v){if(!ADM.t){toast("Выбери игрока");return}const r=$("#arz");admS({t:"adm",pw:ADM.pw,op:"ban",id:ADM.t,v:v?1:0,r:r?r.value:""})},
  ADMk(k,v){admS({t:"adm",pw:ADM.pw,op:"lk",k,v:+v})},
  ADMg(){if(!ADM.t){toast("Выбери игрока");return}admS({t:"adm",pw:ADM.pw,op:"grant",id:ADM.t,k:$("#agk").value})},
