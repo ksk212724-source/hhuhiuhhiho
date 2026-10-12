@@ -1302,7 +1302,7 @@ admH=()=>{const s=ADM.u.find(x=>x.id==ADM.t);return `<h3 style="margin:16px 0 6p
 <h3 style="margin:18px 0 4px">Выдать предмет вручную</h3><div class="sr"><select id="agk">${Object.entries(NAMES()).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join("")}</select><button class="btn" onclick="ADMg()">Выдать</button></div>
 <h3 style="margin:18px 0 4px">Шансы на выигрыш</h3><div class="sm" style="margin-bottom:6px">Коэффициент выплат: 1 = как обычно, 0.5 = выигрыши вдвое меньше, 2 = вдвое больше (0–5). Действует на всех сразу.</div>${Object.entries(LKN).map(([k,n])=>`<div class="sr"><span>${n}</span><input type="number" step="0.1" min="0" max="5" value="${LK[k]??1}" onchange="ADMk('${k}',this.value)"></div>`).join("")}`},
 admDraw=()=>{const z=$("#admz");if(!z)return;const keep=["aam","arz","aq"].map(i=>{const e=document.getElementById(i);return e?e.value:null});
- z.innerHTML=ADM.ok?ordH()+admH():loginH();
+z.innerHTML=ADM.ok?(window.ADXview?ADXview():ordH()+admH()):loginH();
  ["aam","arz","aq"].forEach((i,k)=>{const e=document.getElementById(i);if(e&&keep[k]!=null)e.value=keep[k]})};
 Object.assign(window,{
  openSet(){snd("tap");const e=document.createElement("div");e.className="offm";e.onclick=ev=>{if(ev.target==e)e.remove()};
