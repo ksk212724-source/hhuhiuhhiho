@@ -894,7 +894,7 @@ try{ws=new WebSocket(u.replace(/^http/,"ws"))}catch(e){setTimeout(conn,5000);ret
  ws.onclose=()=>{setTimeout(conn,Math.min(15000,2000+(++tries)*1500))};
  ws.onmessage=e=>{try{const m=JSON.parse(e.data);window.__net.push("← "+m.t+" {"+Object.keys(m).join(",")+"}");dbgU();H[m.t]&&H[m.t](m)}catch(err){window.__errs.push("сообщение сервера: "+err.message)}}}
 /* ===== банк и скины ===== */
-const PHONE="89219872008",MAIL="kirillsk354@gmail.com",QR_SRC="";/* QR_SRC: сюда вставь ссылку на картинку с QR-кодом СБП */
+const PHONE="89219872008",MAIL="kirillsk354@gmail.com",QR_SRC="qr.png?v=1";
 const RUB={k1:10,k2:20,k4:30,k5:50,k7:75,k6:100,k3:150,k8:300,f1:149,f2:249,f3:349},FR=[["f1","Золотая рамка и 149 на баланс"],["f2","Неоновая рамка и 249 на баланс"],["f3","Изумрудная рамка и 349 на баланс"]];
 let ORD=[];try{ORD=JSON.parse(localStorage.getItem("nv_ord"))||[]}catch(e){}
 const ordSave=()=>{try{localStorage.setItem("nv_ord",JSON.stringify(ORD))}catch(e){}},ordOf=k=>ORD.find(o=>o.k==k&&!SKS.own.includes(k)),
