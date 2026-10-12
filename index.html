@@ -887,7 +887,7 @@ document.addEventListener("pointerdown",e=>{const t=e.target.closest&&e.target.c
 const SERVER_URL="https://hhuhiuhhiho.onrender.com";/* для онлайна впиши адрес сервера, например wss://lucky-nova.onrender.com */
 /* Lucky Nova: онлайн-дополнение (банк, скины карт, дурак онлайн). Подключается после основного скрипта. */
 try{(()=>{
-const SK=[["k0","Классика и 10 рублей",0],["k1","Неон и 20 рублей",1e4],["k2","Золото и 30 рублей",1e5],["k4","Изумруд и 50 рублей",25e4],["k5","Рубин и 75 рублей",75e4],["k7","Лёд и 100 рублей",15e5],["k6","Обсидиан и 150 рублей",3e6],["k3","Бриллиант и 200 рублей",5e6],["k8","Космос и 300 рублей",1e7],["k9","Дракон",2e7],["k10","Матрица",3e7],["k11","Аврора",5e7],["k12","Лава",8e7],["k13","Сакура",1.2e8],["k14","Глитч",2e8],["k15","Мифик",5e8]];
+const SK=[["k0","Классика",0],["k1","Неон",0],["k2","Золото",0],["k4","Изумруд",0],["k5","Рубин",0],["k7","Лёд",0],["k6","Обсидиан",0],["k3","Бриллиант",0],["k8","Космос",0],["k9","Дракон",0],["k10","Матрица",0],["k11","Аврора",0],["k12","Лава",0],["k13","Сакура",0],["k14","Глитч",0],["k15","Мифик",0]];
 const DKCSS=`.dk{position:relative;display:block;width:4.9em;height:7em;border-radius:.55em;background:var(--f);border:.1em solid var(--bd);color:var(--bl);box-shadow:0 .4em .9em #0009,var(--gl);font-size:16px;flex:0 0 auto;overflow:hidden;font-family:Georgia,"Times New Roman",serif}
 .dk::before{content:"";position:absolute;inset:.28em;border:.07em solid var(--fr);border-radius:.38em;opacity:.65;pointer-events:none}
 .dk::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,#fff6 0,#fff0 38%);pointer-events:none}
@@ -971,10 +971,10 @@ try{ws=new WebSocket(u.replace(/^http/,"ws"))}catch(e){setTimeout(conn,5000);ret
  ws.onmessage=e=>{try{const m=JSON.parse(e.data);window.__net.push("← "+m.t+" {"+Object.keys(m).join(",")+"}");dbgU();H[m.t]&&H[m.t](m)}catch(err){window.__errs.push("сообщение сервера: "+err.message)}}}
 /* ===== банк и скины ===== */
 const PHONE="89219872008",MAIL="kirillsk354@gmail.com",QR_SRC="qr.png?v=1";
-const RUB={k1:10,k2:20,k4:30,k5:50,k7:75,k6:100,k3:150,k8:300,f1:149,f2:249,f3:349},FR=[["f1","Золотая рамка и 149 на баланс"],["f2","Неоновая рамка и 249 на баланс"],["f3","Изумрудная рамка и 349 на баланс"]];
+const RUB={k1:10,k2:20,k4:30,k5:40,k7:50,k6:60,k3:70,k8:80,k9:90,k10:100,k11:110,k12:120,k13:130,k14:140,k15:150,bt1:10,bt2:20,bt3:30,bt4:40,bt5:50,bt6:60,bt7:70,bt8:80,bt9:90,f1:149,f2:249,f3:349},FR=[["f1","Золотая рамка и 149 на баланс"],["f2","Неоновая рамка и 249 на баланс"],["f3","Изумрудная рамка и 349 на баланс"]];
 let ORD=[];try{ORD=JSON.parse(localStorage.getItem("nv_ord"))||[]}catch(e){}
 const ordSave=()=>{try{localStorage.setItem("nv_ord",JSON.stringify(ORD))}catch(e){}},ordOf=k=>ORD.find(o=>o.k==k&&!SKS.own.includes(k)),
- NAMES=()=>Object.fromEntries(SK.map(x=>[x[0],"Скин карт «"+x[1]+"»"]).concat(FR.map(x=>[x[0],x[1]]))),
+ NAMES=()=>Object.fromEntries(SK.map(x=>[x[0],"Скин карт «"+x[1]+"»"]).concat(BT.filter(b=>RUB[b[0]]).map(b=>[b[0],"Доска «"+b[1]+"»"]),FR.map(x=>[x[0],x[1]]))),
  cpy=t=>{try{navigator.clipboard.writeText(t)}catch(e){}toast("Скопировано")};
 function applyFr(){document.body.dataset.fr=SKS.fr&&SKS.own.includes(SKS.fr)?SKS.fr:""}
 function FRsel(id){SKS.fr=id;skSave();applyFr();bonus()}
@@ -990,12 +990,12 @@ const bankH=()=>`<div class="box"><h2 style="margin-top:0">🏦 Банк</h2><di
 <div class="pr cbr"><input id="ka" type="number" inputmode="numeric" placeholder="Сумма"><button class="btn" onclick="KB.d()">В банк</button><button class="btn" onclick="KB.w()">Из банка</button></div>
 <div class="pr cbr"><input id="kt" placeholder="ID или @username друга"><button class="btn" onclick="KB.s()">Отправить</button></div></div>
 <div class="box"><h2 style="margin-top:0">🎴 Скины карт</h2>${SK.map(([id,n,p],i)=>{const o=SKS.own.includes(id);
- return `<div class="skr ${i?"":"f"}"><div class="skp">${dkc(30,id,0,"pv")}${dkc(0,id,1,"pv")}</div><div class="ski"><b>${n}</b><span>${p?p.toLocaleString("ru")+" 🪙":"бесплатно"}</span></div><button class="btn" ${SKS.sel==id?"disabled":""} onclick="KB.${o?"sel":"buy"}('${id}')">${SKS.sel==id?"Выбрано":o?"Выбрать":"Купить"}</button>${!o&&RUB[id]?(ordOf(id)?'<button class="btn" disabled>Ждёт ответа</button>':`<button class="btn" onclick="PAYF('${id}')">${RUB[id]} ₽</button>`):""}</div>`}).join("")}</div>${framesH()}`;
+ return `<div class="skr ${i?"":"f"}"><div class="skp">${dkc(30,id,0,"pv")}${dkc(0,id,1,"pv")}</div><div class="ski"><b>${n}</b><span>${RUB[id]?RUB[id]+" ₽ · оплата по СБП":"бесплатно"}</span></div>${o?`<button class="btn" ${SKS.sel==id?"disabled":""} onclick="KB.sel('${id}')">${SKS.sel==id?"Выбрано":"Выбрать"}</button>`:ordOf(id)?'<button class="btn" disabled>Ждёт ответа</button>':`<button class="btn" onclick="PAYF('${id}')">${RUB[id]} ₽</button>`}</div>`}).join("")}</div>${framesH()}`;
 window.KB={a(){const n=Math.floor(+$("#ka").value);if(!(n>=1)){toast("Введи сумму");return 0}return n},
  d(){const n=KB.a();if(!n)return;if(n>bal){toast("Не хватает монет");return}if(send({t:"dep",n}))setBal(-n,1)},
  w(){const n=KB.a();if(n)send({t:"wd",n})},
  s(){const n=KB.a();if(n)send({t:"send",to:$("#kt").value,n})},
- buy(id){const p=SK.find(x=>x[0]==id)[2];if(bal<p){toast("Не хватает монет: нужно "+p.toLocaleString("ru"));return}setBal(-p,1);SKS.own.push(id);SKS.sel=id;skSave();skPush();skApply();bonus();toast("Скин куплен!");burst()},sel(id){SKS.sel=id;skSave();skPush();skApply();bonus()}};
+ buy(id){PAYF(id)},sel(id){if(!SKS.own.includes(id))return;SKS.sel=id;skSave();skPush();skApply();bonus()}};
 const ob=bonus;bonus=function(){ob();$("#app").insertAdjacentHTML("beforeend",bankH());xpUI()};
 const oh=home;home=function(){oh();if(cat=="all"||cat=="card")$("#app").insertAdjacentHTML("beforeend",sec("Онлайн и бот",G.filter(g=>["durak","chess","checkers"].includes(g.t))))};
 /* ===== дурак онлайн ===== */
@@ -1051,7 +1051,7 @@ function stick(m){const a=document.querySelector(`.op[data-id="${m.id}"]`)||docu
 function stick_old(m){const a=document.querySelector(`.op[data-id="${m.id}"]`)||document.querySelector(`.mp[data-id="${m.id}"]`),r=a?a.getBoundingClientRect():{left:innerWidth/2-20,top:innerHeight/2,width:40},e=document.createElement("div");
  e.className="stfl";e.textContent=m.e;e.style.left=r.left+r.width/2+"px";e.style.top=r.top+"px";document.body.appendChild(e);snd("pop");setTimeout(()=>e.remove(),2400)}
 const skPush=()=>{if(ws&&ws.readyState==1)ws.send(JSON.stringify({t:"skins",own:SKS.own,sel:SKS.sel}))};
-function skSync(m){if(!m.skins)return;let c=0;m.skins.forEach(s=>{if(!SKS.own.includes(s)){SKS.own.push(s);c=1}});if(c)skSave();if(SKS.own.length!=m.skins.length||SKS.sel!=m.sel)skPush()}
+function skSync(m){if(!m.skins)return;let c=0;SKS.bo=SKS.bo||["bt0"];m.skins.forEach(s=>{if(!SKS.own.includes(s)){SKS.own.push(s);c=1}if(/^bt/.test(s)&&!SKS.bo.includes(s)){SKS.bo.push(s);c=1}});if(c)skSave();if(SKS.sel!=m.sel)skPush()}
 window.DK={sk(id){if(!SKS.own.includes(id))return;SKS.sel=id;skSave();skPush();skApply();lobby()},mx(n){MX=n;lobby()},mk(k){send({t:"mk",n:bet,max:k?2:MX,kind:k||"durak"})},vb(k){(k=="chess"?chess:checkers)(G.find(x=>x.t==k))},jn(){const c=$("#rc").value.trim().toUpperCase();if(c.length==4)send({t:"jn",code:c});else toast("Введи код из 4 букв")},
  go(){send({t:"start"})},lv(){send({t:"leave"});if(!gs){rm=null;lobby()}},p(i,t){send({t:"play",c:i,tgt:t})},a(){send({t:"act"})},s(e){send({t:"st",e})},ch(){send({t:"cheat"})},ac(id){send({t:"acc",to:id})},
  cp(c){try{navigator.clipboard.writeText(c)}catch(e){}toast("Код "+c+" скопирован")}};
@@ -1307,7 +1307,7 @@ z.innerHTML=ADM.ok?(window.ADXview?ADXview():ordH()+admH()):loginH();
  ["aam","arz","aq"].forEach((i,k)=>{const e=document.getElementById(i);if(e&&keep[k]!=null)e.value=keep[k]})};
 Object.assign(window,{
  openSet(){snd("tap");const e=document.createElement("div");e.className="offm";e.onclick=ev=>{if(ev.target==e)e.remove()};
-  e.innerHTML=`<div class="offc setc"><h3>Настройки</h3><div class="sr"><span>Звук и музыка</span><button class="pill" style="flex:none;padding:10px 16px" onclick="toggleSnd();this.textContent=['Выкл','Звуки','Звуки + музыка'][MODE]">${["Выкл","Звуки","Звуки + музыка"][MODE]}</button></div><div id="admz"></div><div class="sm" id="ads" style="margin-top:8px"></div><button class="go gh2" style="margin:16px 0 0" onclick="this.closest('.offm').remove()">Закрыть</button></div>`;
+  e.innerHTML=`<div class="offc setc"><h3>Настройки</h3><div class="sr"><span>Звук и музыка</span><button class="pill" style="flex:none;padding:10px 16px" onclick="toggleSnd();this.textContent=['Выкл','Звуки','Звуки + музыка'][MODE]">${["Выкл","Звуки","Звуки + музыка"][MODE]}</button></div><div class="sr"><span>💀 Admin Abuse</span><button class="pill" style="flex:none;padding:10px 16px" onclick="ADXgo()">Запустить</button></div><div id="admz"></div><div class="sm" id="ads" style="margin-top:8px"></div><button class="go gh2" style="margin:16px 0 0" onclick="this.closest('.offm').remove()">Закрыть</button></div>`;
   document.body.appendChild(e);admDraw();admSt(NET.on()?"":"Нет связи с сервером");if(ADM.ok)admReq()},
  ADMlogin(){const v=$("#apw");if(!v||!v.value){toast("Введи пароль");return}ADM.pw=v.value;ADM.q="";admSt("Проверяем пароль…");admS({t:"adm",pw:ADM.pw,op:"list",q:""})},
  ADMq(q){ADM.q=q!==undefined?q:$("#aq").value;admReq()},ADMrf(){admReq()},
@@ -1338,7 +1338,7 @@ const MR=Math.random.bind(Math);
 const ADX={mult:50000,win:{},cx:0,abuse:0,log:[]};
 try{const s=JSON.parse(localStorage.getItem("nv_adx")||"{}");if(s.mult)ADX.mult=s.mult;if(s.win)ADX.win=s.win;if(s.cx)ADX.cx=s.cx}catch(e){}
 const adxSave=()=>{try{localStorage.setItem("nv_adx",JSON.stringify({mult:ADX.mult,win:ADX.win,cx:ADX.cx}))}catch(e){}},
- adxOn=()=>!!ADM.ok,gopen=()=>$("#g").style.display=="block";
+ adxOn=()=>!!ADM.ok||!!ADX.abuse,gopen=()=>$("#g").style.display=="block";
 const MODES=[["slot","Слоты"],["candy","Candy"],["crash","Краш"],["roul","Рулетка"],["mines","Mines"],["hl","Hi-Lo"],["poker","Покер"],["bj","Блэкджек"]],FORCE=["slot","candy"];
 let ROLL=null,PEND=null,INJ=0;
 function chance(){if(!adxOn())return null;if(ADX.abuse)return 100;const v=ADX.win[CURG];return v==null?null:+v}
@@ -1371,7 +1371,7 @@ const ABR=[55,43.65,65.41,49];
 function abStep(){const m=ABM;if(!m||!AU.c||AU.c.state!="running")return;const n=m.i++,s=n%16,r=ABR[(n>>4)%4];
  if(s%4==0)abT(150,.25,"sine",.35,0,40);if(s%4==2)abHat(.05);if(s%2==1)abHat(.025);
  if(s%2==0)abT(r*2,.13,"sawtooth",.07);abT(r*8*[1,1.5,2,1.5,1.2,1.5,2,2.4][s%8],.1,"square",.025)}
-function abuseGo(){if(!adxOn()||ADX.abuse||ABT)return;const m=document.querySelector(".setc");if(m)m.closest(".offm").remove();
+function abuseGo(){if(ADX.abuse||ABT)return;const m=document.querySelector(".setc");if(m)m.closest(".offm").remove();
  abBus();musicStop();const e=document.createElement("div");e.className="abc";window.__abe=e;
  e.innerHTML=`<div class="abl">⚠️ ADMIN ABUSE ×${fmt(ADX.mult)}</div><div class="abn" id="abn">5</div><div class="abl" style="font-size:13px;opacity:.7">шанс 100% · новый дизайн · музыка</div><button class="go gh2" style="width:auto;padding:10px 24px;margin-top:16px" onclick="ADXabort()">Отмена</button>`;
  document.body.appendChild(e);let n=5;abT(660,.25,"square",.08);
@@ -1433,7 +1433,7 @@ SKS.bo=SKS.bo||["bt0"];SKS.bsel=SKS.bsel||"bt0";
 const applyBt=()=>{document.body.dataset.bt=SKS.bsel||"bt0"};applyBt();
 const bpv=b=>{const l=/^linear/.test(b[3])?"#e6e9ee":b[3],d=/^linear/.test(b[4])?"#868d99":b[4];return `<div class="bpv" style="--l:${l};--d:${d};--pw:${b[5]};--pb:${b[6]};--pws:${b[11]||"0 0 2px #000"};--pbs:${b[12]||"0 0 2px #fff8"}"><i class="p1">♞\uFE0E</i><i class="p2">♜\uFE0E</i></div>`};
 const colH=()=>`<div class="box"><h2 style="margin-top:0">🃏 Мои скины карт</h2><div class="sm" style="margin-bottom:8px">Лицо и рубашка: так свои карты видишь ты и так их видит соперник. Нажми, чтобы выбрать.</div><div class="colr">${SK.filter(x=>SKS.own.includes(x[0])).map(x=>`<div class="colc ${x[0]==SKS.sel?"on":""}" onclick="KB.sel('${x[0]}')"><div class="skp">${dkc(8,x[0],0,"pv")}${dkc(26,x[0],0,"pv")}${dkc(0,x[0],1,"pv")}</div><b>${esc(x[1].replace(/ и \d+ рублей/,""))}</b></div>`).join("")}</div></div>`;
-const brdH=()=>`<div class="box"><h2 style="margin-top:0">♟ Доски и фигуры</h2><div class="sm" style="margin-bottom:6px">Скины для шахмат и шашек.</div>${BT.map((b,i)=>{const o=SKS.bo.includes(b[0]);return `<div class="skr ${i?"":"f"}">${bpv(b)}<div class="ski"><b>${b[1]}</b><span>${b[2]?fmt(b[2])+" 🪙":"бесплатно"}</span></div><button class="btn" ${SKS.bsel==b[0]?"disabled":""} onclick="BTx('${b[0]}')">${SKS.bsel==b[0]?"Выбрано":o?"Выбрать":"Купить"}</button></div>`}).join("")}</div>`;
+const brdH=()=>`<div class="box"><h2 style="margin-top:0">♟ Доски и фигуры</h2><div class="sm" style="margin-bottom:6px">Скины для шахмат и шашек.</div>${BT.map((b,i)=>{const o=SKS.bo.includes(b[0]);return `<div class="skr ${i?"":"f"}">${bpv(b)}<div class="ski"><b>${b[1]}</b><span>${RUB[b[0]]?RUB[b[0]]+" ₽ · оплата по СБП":"бесплатно"}</span></div>${o?`<button class="btn" ${SKS.bsel==b[0]?"disabled":""} onclick="BTx('${b[0]}')">${SKS.bsel==b[0]?"Выбрано":"Выбрать"}</button>`:ordOf(b[0])?'<button class="btn" disabled>Ждёт ответа</button>':`<button class="btn" onclick="PAYF('${b[0]}')">${RUB[b[0]]} ₽</button>`}</div>`}).join("")}</div>`;
 {const ob3=bonus;bonus=function(){ob3();$("#app").insertAdjacentHTML("beforeend",colH()+brdH());xpUI()}}
 /* --- смайлы в шахматах и шашках --- */
 function bEmo(s,e){const w=document.querySelector(".cbw");if(!w)return;const r=w.getBoundingClientRect(),x=r.left+r.width/2,y=s=="me"?r.bottom-60:r.top+60,el=document.createElement("div");el.className="emj";el.textContent=e;el.style.left=x+"px";el.style.top=y+"px";document.body.appendChild(el);sparks(x,y,8,["✨","💫","⭐"]);snd("pop");setTimeout(()=>el.remove(),2300)}
@@ -1446,7 +1446,7 @@ Object.assign(window,{
  ADXgo:abuseGo,ADXoff(){abuseOff();admDraw()},
  ADXabort(){clearInterval(ABT);ABT=null;if(window.__abe)window.__abe.remove();if(MODE==2)musicStart()},
  ADXrun(){const i=$("#acm");if(!i)return;const t=i.value.trim();i.value="";if(!t)return;const o=admCmd(t);ADX.log.unshift("> "+t+"\n"+o);ADX.log=ADX.log.slice(0,5);if(ADM.tab=="t")admDraw()},
- BTx(id){const b=BT.find(x=>x[0]==id);if(!SKS.bo.includes(id)){if(bal<b[2]){toast("Не хватает монет: нужно "+fmt(b[2]));return}setBal(-b[2],1);SKS.bo.push(id);burst(14);toast("Доска куплена!")}SKS.bsel=id;skSave();applyBt();bonus()},
+ BTx(id){if(!SKS.bo.includes(id)){PAYF(id);return}SKS.bsel=id;skSave();applyBt();bonus()},
  BE(e){const k=$("#g").dataset.dk;if(k!="chess"&&k!="checkers")return;bEmo("me",e);if(BM.fn)send({t:"st",e});else if(MR()<.6)setTimeout(()=>bEmo("opp",EM[rn(7)]),900)}});
 })();window.__addon=1}catch(e){window.dispatchEvent(new ErrorEvent("error",{message:"онлайн-часть: "+e.message}))}
 
