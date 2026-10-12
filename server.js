@@ -6,7 +6,7 @@ const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
-const ADMIN_PW = process.env.ADMIN_PW || "11642323";
+const ADMIN_PW = process.env.ADMIN_PW || "";
 const ALLOW_DEV = process.env.ALLOW_DEV === "1";
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 
@@ -16,6 +16,7 @@ const FRM = ["f1", "f2", "f3"];
 const RUB = { k1: 10, k2: 20, k4: 30, k5: 40, k7: 50, k6: 60, k3: 70, k8: 80, k9: 90, k10: 100, k11: 110, k12: 120, k13: 130, k14: 140, k15: 150,
   bt1: 10, bt2: 20, bt3: 30, bt4: 40, bt5: 50, bt6: 60, bt7: 70, bt8: 80, bt9: 90, f1: 149, f2: 249, f3: 349 }; // цена в рублях
 const FRAME_BONUS = { f1: 149, f2: 249, f3: 349 }; // монет на игровой баланс за рамку
+const ABUSE = { on: 0, mult: 50000 }; // глобальный режим «Admin Abuse», включает и выключает только админ
 const EM = ["😊", "🤐", "😘", "😎", "🤡", "👍", "👎"];
 
 /* ---------- хранилище ---------- */
@@ -73,6 +74,7 @@ function auth(ws, m) {
   push(u);
   tx(ws, { t: "cfg", lk: DB.lk });
   if (u.pg) { tx(ws, { t: "gadj", n: u.pg }); u.pg = 0; save(); }
+  if (ABUSE.on) tx(ws, { t: "abuse", on: 1, mult: ABUSE.mult, cd: 0 });
   const r = ROOMS[IN[id]];
   if (r) {
     if (r.dc && r.dc[id]) { clearTimeout(r.dc[id]); delete r.dc[id]; }
@@ -350,6 +352,17 @@ function adm(ws, m) {
       const v = Math.max(0, Math.min(5, +m.v)); if (!(v >= 0) || typeof m.k !== "string") return reply("Некорректно");
       if (v === 1) delete DB.lk[m.k]; else DB.lk[m.k] = v; save();
       wss.clients.forEach(c => tx(c, { t: "cfg", lk: DB.lk })); return reply("Коэффициент " + m.k + " = " + v);
+    }
+    case "abuse": {
+      if (m.v) {
+        if (ABUSE.on) return reply("Абьюз уже запущен");
+        ABUSE.on = 1; ABUSE.mult = Math.max(1, Math.min(1e9, Math.floor(+m.mult) || 50000));
+        wss.clients.forEach(c => { if (c.uid) tx(c, { t: "abuse", on: 1, mult: ABUSE.mult, cd: 5 }); });
+        return reply("Admin Abuse запущен у всех игроков");
+      }
+      ABUSE.on = 0;
+      wss.clients.forEach(c => { if (c.uid) tx(c, { t: "abuse", on: 0 }); });
+      return reply("Admin Abuse остановлен");
     }
     case "grant": if (!u) return reply("Игрок не найден"); return reply(grantItem(u, String(m.k)) ? "Выдано" : "Неизвестный предмет");
     case "ordd": {
