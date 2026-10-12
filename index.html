@@ -1201,49 +1201,56 @@ Object.assign(DK,{
  ch(){LB.r?LBE.cheat({id:"me"}):send({t:"cheat"})},
  ac(id){LB.r?LBE.acc({id:"me"},{to:id}):send({t:"acc",to:id})},
  lv(){if(LB.r){LBE.abandon(LB.r,"me");return}send({t:"leave"});if(!gs){rm=null;LBY()}}});
-/* админ-панель */
-const ADM={pw:"",ok:0,u:[],q:"",t:""},LKN={slot:"Слоты",candy:"Candy",crash:"Краш",roul:"Рулетка",mines:"Mines",hl:"Hi-Lo",poker:"Покер",bj:"Блэкджек",durak:"Дурак (бот)",chess:"Шахматы",checkers:"Шашки"};
-const admH=()=>`<h3 style="margin:16px 0 6px">Админ-панель</h3><div class="sr"><input id="aq" placeholder="Поиск: имя, ID, @username" value="${esc(ADM.q)}"><button class="btn" onclick="ADMq()">Найти</button></div><div class="ul">${ADM.u.map(u=>`<div class="ur ${ADM.t==u.id?"on":""}" onclick="ADMsel('${esc(u.id)}')"><b>${esc(u.name)}</b><span>${u.on?"● в сети · ":""}ID ${esc(u.id)}${u.username?" @"+esc(u.username):""}</span><em>банк ${u.bal} · игровой ${u.gb==null?"?":u.gb}</em></div>`).join("")||"<div class='ur'><span>Никого не найдено</span></div>"}</div>
-<div class="sr"><input id="aam" type="number" inputmode="numeric" placeholder="Сумма"></div><div class="two"><button class="btn" onclick="ADMo('bank',1)">+ в банк</button><button class="btn" onclick="ADMo('bank',-1)">− из банка</button></div><div class="two" style="margin-top:8px"><button class="btn" onclick="ADMo('game',1)">+ в игру</button><button class="btn" onclick="ADMo('game',-1)">− из игры</button></div>
-<h3 style="margin:18px 0 4px">Выдать купленное (после ответа «да»)</h3><div class="sr"><select id="agk">${Object.entries(NAMES()).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join("")}</select><button class="btn" onclick="ADMg()">Выдать</button></div><h3 style="margin:18px 0 4px">Шансы на выигрыш</h3><div class="sm" style="margin-bottom:6px">Коэффициент выплат по режиму: 1 = как обычно, 0.5 = выигрыши вдвое меньше, 2 = вдвое больше (0–5). Действует на всех игроков сразу.</div>${Object.entries(LKN).map(([k,n])=>`<div class="sr"><span>${n}</span><input type="number" step="0.1" min="0" max="5" value="${LK[k]??1}" onchange="ADMk('${k}',this.value)"></div>`).join("")}`;
-const ADMreq=()=>send({t:"adm",pw:ADM.pw,op:"list",q:ADM.q}),ADMr=()=>{const z=$("#admz");if(z)z.innerHTML=admH()};
-Object.assign(window,{
- openSet(){snd("tap");const e=document.createElement("div");e.className="offm";e.onclick=ev=>{if(ev.target==e)e.remove()};
-  e.innerHTML=`<div class="offc setc"><h3>Настройки</h3><div class="sr"><span>Звук и музыка</span><button class="pill" style="flex:none;padding:10px 16px" onclick="toggleSnd();this.textContent=['Выкл','Звуки','Звуки + музыка'][MODE]">${["Выкл","Звуки","Звуки + музыка"][MODE]}</button></div><div id="admz">${ADM.ok?admH():`<div class="sr" style="margin-top:12px"><input id="apw" type="password" placeholder="Пароль администратора"><button class="btn" onclick="ADMlogin()">Войти</button></div>`}</div><button class="go gh2" style="margin:16px 0 0" onclick="this.closest('.offm').remove()">Закрыть</button></div>`;document.body.appendChild(e)},
- ADMlogin(){ADM.pw=$("#apw").value;if(send({t:"adm",pw:ADM.pw,op:"list",q:""}))ADM.q=""},
- ADMq(){ADM.q=$("#aq").value;ADMreq()},ADMsel(id){ADM.t=id;ADMr()},
- ADMo(op,sg){const n=Math.floor(+$("#aam").value);if(!ADM.t||!(n>=1)){toast("Выбери игрока и введи сумму");return}send({t:"adm",pw:ADM.pw,op,id:ADM.t,n:n*sg})},
- ADMk(k,v){send({t:"adm",pw:ADM.pw,op:"lk",k,v:+v})},
- ADMg(){if(!ADM.t){toast("Выбери игрока");return}send({t:"adm",pw:ADM.pw,op:"grant",id:ADM.t,k:$("#agk").value})}});
-Object.assign(H,{
- cfg(m){LK=m.lk||{}},
- gadj(m){const n=Math.max(m.n,-bal);setBal(n,1);toast(n>=0?"Администратор начислил +"+n+" монет":"Администратор списал "+(-n)+" монет");snd(n>=0?"big":"lose")},
- adml(m){ADM.ok=1;ADM.u=m.u;LK=m.lk||LK;const q=$("#aq");ADMr();if(q)$("#aq")&&($("#aq").value=ADM.q)},
- admr(m){if(m.bad){ADM.ok=0;toast("Неверный пароль");return}if(m.m){toast(m.m);ADMreq()}}});
-Object.assign(window,{PAYF,PAYD,cpy,FRsel});
-/* ===== фикс админки + заказы ===== */
-ADM.o=[];ADM.w=0;
-const admSt=t=>{const z=$("#ads");if(z)z.textContent=t},
-admS=o=>{const k=ADM.w=Date.now();const ok=send(o);if(ok)setTimeout(()=>{if(ADM.w===k){ADM.w=0;admSt("Сервер не ответил на админ-запрос. Скорее всего, на сервере старый server.js без обработчика adm.")}},7000);return ok},
+/* ===== АДМИН-ПАНЕЛЬ v10: бан/разбан, деньги, заказы, шансы =====
+   ЗАМЕНЯЕТ всё от строки "/* админ-панель */" до строки перед "/* заказ уходит на сервер ..." */
+const ADM={pw:"",ok:0,u:[],o:[],q:"",t:"",w:0},
+LKN={slot:"Слоты",candy:"Candy",crash:"Краш",roul:"Рулетка",mines:"Mines",hl:"Hi-Lo",poker:"Покер",bj:"Блэкджек",durak:"Дурак (бот)",chess:"Шахматы",checkers:"Шашки"},
+fmt=n=>Number(n||0).toLocaleString("ru"),
+admSt=t=>{const z=$("#ads");if(z)z.textContent=t||""},
+admS=o=>{const k=ADM.w=Date.now();const ok=send(o);if(ok)setTimeout(()=>{if(ADM.w===k){ADM.w=0;admSt("Сервер не ответил. Проверь, что на Render задеплоен новый server.js, и подожди пару секунд после запуска.")}},9000);return ok},
 admReq=()=>admS({t:"adm",pw:ADM.pw,op:"list",q:ADM.q}),
 loginH=()=>`<div class="sr" style="margin-top:12px"><input id="apw" type="password" placeholder="Пароль администратора" autocomplete="off"><button class="btn" onclick="ADMlogin()">Войти</button></div>`,
-ordH=()=>`<h3 style="margin:16px 0 6px">Заказы на оплату ${ADM.o.length?"("+ADM.o.length+")":""}</h3><div class="ul">${ADM.o.map(o=>`<div class="ur"><b>${esc(NAMES()[o.k]||o.k)} · ${RUB[o.k]||o.rub||"?"} ₽</b><span>Заказ ${esc(o.id)} · ${esc(o.name||"")} · ID ${esc(o.uid)}</span><div class="two" style="margin-top:6px"><button class="btn" onclick="ADMord('${esc(o.id)}',1)">Да</button><button class="btn" onclick="ADMord('${esc(o.id)}',0)">Нет</button></div></div>`).join("")||"<div class='ur'><span>Новых заказов нет</span></div>"}</div><button class="btn" style="width:100%" onclick="ADMrf()">Обновить</button>`,
-admDraw=()=>{const z=$("#admz");if(!z)return;const a=$("#aam"),v=a?a.value:"";z.innerHTML=ADM.ok?ordH()+admH():loginH();const n=$("#aam");if(n)n.value=v};
+ordH=()=>`<h3 style="margin:16px 0 6px">Заказы на оплату ${ADM.o.length?"("+ADM.o.length+")":""}</h3><div class="ul">${ADM.o.map(o=>`<div class="ur"><b>${esc(NAMES()[o.k]||o.k)} · ${o.rub||RUB[o.k]||"?"} ₽</b><span>Заказ ${esc(o.id)} · ${esc(o.name||"")} · ID ${esc(o.uid)}</span><div class="two" style="margin-top:6px"><button class="btn" onclick="ADMord('${esc(o.id)}',1)">✅ Да, выдать</button><button class="btn" onclick="ADMord('${esc(o.id)}',0)">❌ Нет</button></div></div>`).join("")||"<div class='ur'><span>Новых заказов нет</span></div>"}</div><button class="btn" style="width:100%" onclick="ADMrf()">Обновить</button>`,
+usrH=()=>ADM.u.map(u=>`<div class="ur ${ADM.t==u.id?"on":""}" onclick="ADMsel('${esc(u.id)}')"><b>${u.ban?"🚫 ":""}${esc(u.name)}</b><span>${u.on?"● в сети · ":""}ID ${esc(u.id)}${u.username?" @"+esc(u.username):""}</span><em>банк ${fmt(u.bal)} · игровой ${u.gb==null?"?":fmt(u.gb)}</em></div>`).join("")||"<div class='ur'><span>Никого не найдено</span></div>",
+admH=()=>{const s=ADM.u.find(x=>x.id==ADM.t);return `<h3 style="margin:16px 0 6px">Игроки</h3>
+<div class="sr"><input id="aq" placeholder="Поиск: имя, ID, @username" value="${esc(ADM.q=="#ban"?"":ADM.q)}"><button class="btn" onclick="ADMq()">Найти</button></div>
+<div class="two" style="margin-bottom:6px"><button class="btn" onclick="ADMq('')">Все</button><button class="btn" onclick="ADMq('#ban')">🚫 Забаненные</button></div>
+<div class="ul">${usrH()}</div>
+<div class="sm" style="margin:6px 0">${s?"Выбран: <b>"+esc(s.name)+"</b> (ID "+esc(s.id)+")"+(s.ban?" · 🚫 забанен":""):"Выбери игрока из списка"}</div>
+<div class="sr"><input id="aam" type="number" inputmode="numeric" placeholder="Сумма (любая)"></div>
+<div class="two"><button class="btn" onclick="ADMo('bank',1)">+ в банк</button><button class="btn" onclick="ADMo('bank',-1)">− из банка</button></div>
+<div class="two" style="margin-top:8px"><button class="btn" onclick="ADMo('game',1)">+ в игру</button><button class="btn" onclick="ADMo('game',-1)">− из игры</button></div>
+<h3 style="margin:18px 0 4px">Бан</h3>
+<div class="sr"><input id="arz" placeholder="Причина (необязательно)"></div>
+<div class="two"><button class="btn" onclick="ADMban(1)">🚫 Забанить</button><button class="btn" onclick="ADMban(0)">♻️ Разбанить</button></div>
+<h3 style="margin:18px 0 4px">Выдать предмет вручную</h3><div class="sr"><select id="agk">${Object.entries(NAMES()).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join("")}</select><button class="btn" onclick="ADMg()">Выдать</button></div>
+<h3 style="margin:18px 0 4px">Шансы на выигрыш</h3><div class="sm" style="margin-bottom:6px">Коэффициент выплат: 1 = как обычно, 0.5 = выигрыши вдвое меньше, 2 = вдвое больше (0–5). Действует на всех сразу.</div>${Object.entries(LKN).map(([k,n])=>`<div class="sr"><span>${n}</span><input type="number" step="0.1" min="0" max="5" value="${LK[k]??1}" onchange="ADMk('${k}',this.value)"></div>`).join("")}`},
+admDraw=()=>{const z=$("#admz");if(!z)return;const keep=["aam","arz","aq"].map(i=>{const e=document.getElementById(i);return e?e.value:null});
+ z.innerHTML=ADM.ok?ordH()+admH():loginH();
+ ["aam","arz","aq"].forEach((i,k)=>{const e=document.getElementById(i);if(e&&keep[k]!=null)e.value=keep[k]})};
 Object.assign(window,{
  openSet(){snd("tap");const e=document.createElement("div");e.className="offm";e.onclick=ev=>{if(ev.target==e)e.remove()};
   e.innerHTML=`<div class="offc setc"><h3>Настройки</h3><div class="sr"><span>Звук и музыка</span><button class="pill" style="flex:none;padding:10px 16px" onclick="toggleSnd();this.textContent=['Выкл','Звуки','Звуки + музыка'][MODE]">${["Выкл","Звуки","Звуки + музыка"][MODE]}</button></div><div id="admz"></div><div class="sm" id="ads" style="margin-top:8px"></div><button class="go gh2" style="margin:16px 0 0" onclick="this.closest('.offm').remove()">Закрыть</button></div>`;
   document.body.appendChild(e);admDraw();admSt(NET.on()?"":"Нет связи с сервером");if(ADM.ok)admReq()},
  ADMlogin(){const v=$("#apw");if(!v||!v.value){toast("Введи пароль");return}ADM.pw=v.value;ADM.q="";admSt("Проверяем пароль…");admS({t:"adm",pw:ADM.pw,op:"list",q:""})},
- ADMq(){ADM.q=$("#aq").value;admReq()},ADMrf(){admReq()},
+ ADMq(q){ADM.q=q!==undefined?q:$("#aq").value;admReq()},ADMrf(){admReq()},
  ADMsel(id){ADM.t=id;admDraw()},
- ADMord(oid,yes){const o=ADM.o.find(x=>x.id==oid);if(!o)return;
-  if(yes)send({t:"adm",pw:ADM.pw,op:"grant",id:o.uid,k:o.k});
-  send({t:"adm",pw:ADM.pw,op:"ordd",oid,yes:yes?1:0});ADM.o=ADM.o.filter(x=>x.id!=oid);admDraw();toast(yes?"Выдано":"Отклонено")}});
+ ADMo(op,sg){const n=Math.floor(+$("#aam").value);if(!ADM.t||!(n>=1)){toast("Выбери игрока и введи сумму");return}admS({t:"adm",pw:ADM.pw,op,id:ADM.t,n:n*sg})},
+ ADMban(v){if(!ADM.t){toast("Выбери игрока");return}const r=$("#arz");admS({t:"adm",pw:ADM.pw,op:"ban",id:ADM.t,v:v?1:0,r:r?r.value:""})},
+ ADMk(k,v){admS({t:"adm",pw:ADM.pw,op:"lk",k,v:+v})},
+ ADMg(){if(!ADM.t){toast("Выбери игрока");return}admS({t:"adm",pw:ADM.pw,op:"grant",id:ADM.t,k:$("#agk").value})},
+ ADMord(oid,yes){admS({t:"adm",pw:ADM.pw,op:"ordd",oid,yes:yes?1:0})}});
 Object.assign(H,{
- adml(m){ADM.w=0;ADM.ok=1;ADM.u=m.u||[];if(m.o)ADM.o=m.o;LK=m.lk||LK;admDraw();admSt("")},
+ cfg(m){LK=m.lk||{}},
+ gadj(m){const n=Math.max(m.n,-bal);setBal(n,1);toast(n>=0?"Администратор начислил +"+n+" монет":"Администратор списал "+(-n)+" монет");snd(n>=0?"big":"lose")},
+ adml(m){ADM.w=0;ADM.ok=1;ADM.u=m.u||[];ADM.o=m.o||[];LK=m.lk||LK;admDraw();admSt("")},
  admr(m){ADM.w=0;if(m.bad){ADM.ok=0;admDraw();admSt("Неверный пароль");toast("Неверный пароль");return}if(m.m){toast(m.m);admReq()}},
  ordn(m){if(!ADM.ok)return;ADM.o=ADM.o.filter(x=>x.id!=m.o.id).concat(m.o);toast("Новый заказ: "+(NAMES()[m.o.k]||m.o.k));snd("scat");admDraw()},
- ordr(m){ORD=ORD.filter(o=>o.id!=m.id);ordSave();toast(m.ok?"Оплата подтверждена, предмет выдан":"Оплата не подтверждена");if(m.ok)snd("fan");if(onBonus())bonus()}});
+ ordr(m){ORD=ORD.filter(o=>o.id!=m.id);ordSave();toast(m.ok?"Оплата подтверждена, предмет выдан":"Оплата не подтверждена");if(m.ok)snd("fan");if(onBonus())bonus()},
+ ban(m){const old=document.getElementById("banov");if(old)old.remove();const e=document.createElement("div");e.id="banov";e.className="offm";e.style.zIndex=9999;
+  e.innerHTML=`<div class="offc"><div class="ic">🚫</div><h3>Доступ закрыт</h3><p>Твой аккаунт заблокирован администратором.${m.m?"<br><br>Причина: "+esc(m.m):""}</p><button class="go" style="margin:0" onclick="location.reload()">Проверить снова</button></div>`;
+  document.body.appendChild(e);const g=$("#g");if(g&&g.style.display=="block")g.style.display="none"}});
+Object.assign(window,{PAYF,PAYD,cpy,FRsel});
 /* заказ уходит на сервер (письмо остаётся запасным вариантом) */
 {const pd=PAYD;window.PAYD=function(k,id,b){send({t:"ord",id,k,rub:RUB[k]});pd(k,id,b)}}
 /* после переподключения повторно отправляем неподтверждённые заказы */
