@@ -894,7 +894,7 @@ function conn(){const u=SERVER_URL||(/^https?:$/.test(location.protocol)?(locati
  ws.onmessage=e=>{try{const m=JSON.parse(e.data);window.__net.push("← "+m.t+" {"+Object.keys(m).join(",")+"}");dbgU();H[m.t]&&H[m.t](m)}catch(err){window.__errs.push("сообщение сервера: "+err.message)}}}
 /* ===== банк и скины ===== */
 const PHONE="89219872008",MAIL="kirillsk354@gmail.com",QR_SRC="";/* QR_SRC: сюда вставь ссылку на картинку с QR-кодом СБП */
-const RUB={k1:99,k2:199,k4:299,k5:399,k7:499,k6:699,k3:999,k8:1499,f1:149,f2:249,f3:349},FR=[["f1","Золотая рамка"],["f2","Неоновая рамка"],["f3","Изумрудная рамка"]];
+const RUB={k1:10,k2:20,k4:30,k5:50,k7:75,k6:100,k3:150,k8:300,f1:149,f2:249,f3:349},FR=[["f1","Золотая рамка и 149 на баланс"],["f2","Неоновая рамка и 249 на баланс"],["f3","Изумрудная рамка и 349 на баланс"]];
 let ORD=[];try{ORD=JSON.parse(localStorage.getItem("nv_ord"))||[]}catch(e){}
 const ordSave=()=>{try{localStorage.setItem("nv_ord",JSON.stringify(ORD))}catch(e){}},ordOf=k=>ORD.find(o=>o.k==k&&!SKS.own.includes(k)),
  NAMES=()=>Object.fromEntries(SK.map(x=>[x[0],"Скин карт «"+x[1]+"»"]).concat(FR.map(x=>[x[0],x[1]]))),
