@@ -957,7 +957,7 @@ const H={
  gstart(m){rm=null;gs=null;const g=G.find(x=>x.t==m.kind);if(!g)return;if(!isDk()||$("#g").dataset.dk!=m.kind)openG(g.id);(m.kind=="chess"?chess:checkers)(g,m);snd("fan")},
  mv(m){BM.fn&&BM.fn(m)},
  g(m){if(!m.pl){toast("Сервер устарел: запусти новый server.js");return}rm=null;gs=m;renderG()},
- stk(m){if(gs&&m.id==gs.me)return;stick(m)},
+stk(m){const k=$("#g").dataset.dk;if(k=="chess"||k=="checkers"){if(m.id!=B.id)bEmo("opp",m.e);return}if(gs&&m.id==gs.me)return;stick(m)},
  ev(m){toast(m.m);snd(m.me?"scat":"mult")},
  end(m){gs=null;rm=null;toast(m.left?(m.win?"Соперник вышел: +"+m.n:"Ты вышел: ставка потеряна"):m.kind?(m.win==1?"Победа! +"+m.n:m.win==2?"Ничья: ставки возвращены":"Поражение. Ставка потеряна"):m.win==1?"Победа! "+m.durak+" остаётся дураком. +"+m.n:m.win==2?"Ничья, ставки возвращены":"Ты остался в дураках. Ставка потеряна");
   if(m.win==1){burst();snd("fan")}else snd("lose");if(isDk())LBY()}};
