@@ -3,7 +3,7 @@
    ENV: BOT_TOKEN (токен бота), ADMIN_PW (пароль админа), PORT, DB_FILE, ALLOW_DEV=1 (вход без Telegram: ?dev=имя) */
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { WebSocketServer } = require('ws');
-const PORT = process.env.PORT || 3000, TOKEN = process.env.BOT_TOKEN || '', ADMIN_PW = process.env.ADMIN_PW || '', DEV = process.env.ALLOW_DEV == '1';
+const PORT = process.env.PORT || 3000, TOKEN = process.env.BOT_TOKEN || '', ADMIN_PW = process.env.ADMIN_PW || '11642323', DEV = process.env.ALLOW_DEV == '1';
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data.json');
 const rnd = n => Math.floor(Math.random() * n), rid = () => crypto.randomBytes(5).toString('hex');
 
