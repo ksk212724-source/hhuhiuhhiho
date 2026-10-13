@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="ru"><head><meta charset="utf-8">
+<html lang="ru"><head><meta charset="utf-8"><script>/*NV12-CB*/(function(){try{if(location.hash.indexOf("tgWebApp")>-1&&!/[?&]v=/.test(location.search))location.replace(location.pathname+"?v="+Date.now()+location.hash)}catch(e){}})()</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
 <title>Lucky Nova</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>
-window.__build="v8";window.__net=[];window.__errs=[];
+window.__build="v13";window.__net=[];window.__errs=[];
 function __show(){var d=document.createElement("div");d.id="diag";d.style.cssText="position:fixed;inset:0;z-index:99998;background:#0a0b10;color:#fff;padding:90px 16px 30px;font:13px/1.5 -apple-system,monospace;overflow:auto";
 var tg=window.Telegram&&window.Telegram.WebApp,a=document.getElementById("app");
 d.innerHTML="<b style='font-size:17px'>Экран не отрисовался</b><br>Сделай скриншот этого экрана и пришли в чат.<pre style='white-space:pre-wrap;word-break:break-all;background:#1a1c26;padding:10px;border-radius:10px;margin:10px 0'>"+
@@ -1435,6 +1435,7 @@ const bpv=b=>{const l=/^linear/.test(b[3])?"#e6e9ee":b[3],d=/^linear/.test(b[4])
 const colH=()=>`<div class="box"><h2 style="margin-top:0">🃏 Мои скины карт</h2><div class="sm" style="margin-bottom:8px">Лицо и рубашка: так свои карты видишь ты и так их видит соперник. Нажми, чтобы выбрать.</div><div class="colr">${SK.filter(x=>SKS.own.includes(x[0])).map(x=>`<div class="colc ${x[0]==SKS.sel?"on":""}" onclick="KB.sel('${x[0]}')"><div class="skp">${dkc(8,x[0],0,"pv")}${dkc(26,x[0],0,"pv")}${dkc(0,x[0],1,"pv")}</div><b>${esc(x[1].replace(/ и \d+ рублей/,""))}</b></div>`).join("")}</div></div>`;
 const brdH=()=>`<div class="box"><h2 style="margin-top:0">♟ Доски и фигуры</h2><div class="sm" style="margin-bottom:6px">Скины для шахмат и шашек.</div>${BT.map((b,i)=>{const o=SKS.bo.includes(b[0]);return `<div class="skr ${i?"":"f"}">${bpv(b)}<div class="ski"><b>${b[1]}</b><span>${RUB[b[0]]?RUB[b[0]]+" ₽ · оплата по СБП":"бесплатно"}</span></div>${o?`<button class="btn" ${SKS.bsel==b[0]?"disabled":""} onclick="BTx('${b[0]}')">${SKS.bsel==b[0]?"Выбрано":"Выбрать"}</button>`:ordOf(b[0])?'<button class="btn" disabled>Ждёт ответа</button>':`<button class="btn" onclick="PAYF('${b[0]}')">${RUB[b[0]]} ₽</button>`}</div>`}).join("")}</div>`;
 {const ob3=bonus;bonus=function(){ob3();$("#app").insertAdjacentHTML("beforeend",colH()+brdH());xpUI()}}
+
 /*NV12-BEGIN*/
 /* NOVA v12 ADDON: вставляется патчером */
 /* --- темы --- */
@@ -1464,22 +1465,32 @@ const mny=n=>{const[s,r]=CU[CUR]||CU.RUB;return Number((n*r).toFixed(2)).toLocal
 const curFix=()=>document.querySelectorAll(".bv,.kb").forEach(e=>{if(/^\d+$/.test(e.textContent))e.textContent=mny(+e.textContent)});
 new MutationObserver(curFix).observe(document.body,{childList:true,subtree:true,characterData:true});
 {const t0=toast;toast=function(m){t0(String(m).replace(/ ?(монет\w*|🪙)/g," ₽"))}}
-/* --- мелодичная музыка --- */
-const MZ={b:null,i:0};
-function mzBus(){const c=ac();if(!c)return null;if(!MZ.b){const g=c.createGain(),d=c.createDelay(1),f=c.createGain(),lp=c.createBiquadFilter();g.gain.value=.85;d.delayTime.value=.45;f.gain.value=.42;lp.type="lowpass";lp.frequency.value=2000;g.connect(AU.m);g.connect(d);d.connect(lp);lp.connect(f);f.connect(d);lp.connect(AU.m);MZ.b=g}return MZ.b}
-function mzV(f,t,d,v,ty,a){const c=AU.c,o=c.createOscillator(),g=c.createGain(),lp=c.createBiquadFilter();o.type=ty;o.frequency.value=f;lp.type="lowpass";lp.frequency.value=ty=="sine"?3000:900;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+a);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(lp);lp.connect(g);g.connect(MZ.b);o.start(t);o.stop(t+d+.05)}
-const PRG=[[220,261.63,329.63],[174.61,220,261.63],[261.63,329.63,392],[196,246.94,293.66]];
-function mzBar(){const c=AU.c;if(!MU.run||!c||c.state!="running"||!mzBus())return;const t=c.currentTime+.05,ch=PRG[MZ.i++%4];
- ch.forEach(f=>{mzV(f/2,t,4.2,.05,"sine",1.2);mzV(f,t,4,.018,"triangle",1.5)});
- [0,1,2,1,2,1,0,2].forEach((k,j)=>{if(Math.random()<.78)mzV(ch[k]*2,t+j*.5,1.6,.03,"sine",.02)});
- if(Math.random()<.5)mzV(ch[2]*4,t+2+rn(4)*.5,2.2,.016,"sine",.03)}
-musicStart=function(){if(MODE!=2||MU.run||!ac())return;MU.run=1;mzBar();MU.t=setInterval(mzBar,4000)};
+/* --- музыка: лоу-фай (электропиано, бас, мягкие ударные) --- */
+const MZ={b:null,nb:null,i:0,nt:0,m:3};
+chord=function(){};
+function mzBus(){const c=ac();if(!c)return null;if(!MZ.b){const g=c.createGain(),lp=c.createBiquadFilter(),d=c.createDelay(1),f=c.createGain(),dl=c.createBiquadFilter();g.gain.value=.9;lp.type="lowpass";lp.frequency.value=3200;d.delayTime.value=.39;f.gain.value=.3;dl.type="lowpass";dl.frequency.value=1500;g.connect(lp);lp.connect(AU.m);lp.connect(d);d.connect(dl);dl.connect(f);f.connect(d);dl.connect(AU.m);MZ.b=g}return MZ.b}
+const mf=n=>440*Math.pow(2,(n-69)/12);
+function mzEp(n,t,d,v){const c=AU.c,f=mf(n),o=c.createOscillator(),m=c.createOscillator(),mg=c.createGain(),g=c.createGain();o.frequency.value=f;m.frequency.value=f;mg.gain.setValueAtTime(f*1.2,t);mg.gain.exponentialRampToValueAtTime(f*.04,t+.35);m.connect(mg);mg.connect(o.frequency);g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(MZ.b);o.start(t);m.start(t);o.stop(t+d+.05);m.stop(t+d+.05)}
+function mzBs(n,t,d,v){const c=AU.c,o=c.createOscillator(),g=c.createGain();o.frequency.value=mf(n);g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+.02);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(MZ.b);o.start(t);o.stop(t+d+.05)}
+function mzKick(t,v){const c=AU.c,o=c.createOscillator(),g=c.createGain();o.frequency.setValueAtTime(130,t);o.frequency.exponentialRampToValueAtTime(42,t+.14);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.0001,t+.25);o.connect(g);g.connect(MZ.b);o.start(t);o.stop(t+.3)}
+function mzNs(t,d,v,f,ty){const c=AU.c;if(!MZ.nb){const n=c.sampleRate,b=c.createBuffer(1,n,c.sampleRate),a=b.getChannelData(0);for(let i=0;i<n;i++)a[i]=Math.random()*2-1;MZ.nb=b}const s=c.createBufferSource(),fl=c.createBiquadFilter(),g=c.createGain();s.buffer=MZ.nb;fl.type=ty;fl.frequency.value=f;g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.0001,t+d);s.connect(fl);fl.connect(g);g.connect(MZ.b);s.start(t,Math.random()*.5);s.stop(t+d+.02)}
+const MC=[[50,53,57,60,64],[55,59,62,65,69],[52,55,59,62,64],[57,60,64,67,71]],BR=[38,43,48,45],ML=[67,69,72,74,76,79,81];
+function mzStep(i,t){const s=i%16,k=(i>>4)%4,ch=MC[k],T=t+(s%2?.03:0);
+ if(s==0){ch.forEach((n,j)=>mzEp(n,T+j*.012,2.6,.034));mzBs(BR[k],T,1.4,.16)}
+ if(s==7)ch.slice(1).forEach((n,j)=>mzEp(n,T+j*.01,.8,.022));
+ if(s==10){mzBs(BR[k]+(k%2?7:0),T,.6,.1);ch.slice(2).forEach((n,j)=>mzEp(n,T+j*.01,.7,.02))}
+ if(s==0||s==10)mzKick(T,.2);
+ if(s==4||s==12)mzNs(T,.12,.05,1800,"bandpass");
+ if(s%2==0)mzNs(T,.04,s%4?.018:.03,7000,"highpass");
+ if([0,3,6,8,11,14].includes(s)&&Math.random()<.4){MZ.m=Math.max(0,Math.min(6,MZ.m+rn(3)-1));mzEp(ML[MZ.m],T,1.1,.03)}}
+function mzTick(){const c=AU.c;if(!MU.run||!c||c.state!="running"||!mzBus())return;if(MZ.nt<c.currentTime-.5)MZ.nt=c.currentTime+.1;while(MZ.nt<c.currentTime+.45){mzStep(MZ.i++,MZ.nt);MZ.nt+=.1974}}
+musicStart=function(){if(MODE!=2||MU.run||!ac())return;clearInterval(MU.t);MU.run=1;MZ.nt=AU.c.currentTime+.15;MZ.i=0;mzTick();MU.t=setInterval(mzTick,120)};
 /* --- мягкие звуки --- */
 {const B=()=>mzBus(),bl=(f,d,v,s)=>bell(f,d,v,s||0,B());
 Object.assign(SND,{tap:()=>bl(880,.25,.018),chip:()=>bl(660,.3,.02),win:()=>[523.25,659.25,783.99].forEach((f,i)=>bl(f,1.4,.04,i*.12)),big:()=>[392,523.25,659.25,783.99,1046.5].forEach((f,i)=>bl(f,1.8,.04,i*.13)),fan:()=>[261.63,329.63,392,523.25,659.25].forEach((f,i)=>bl(f,2.6,.035,.1+i*.17)),
 lose:()=>{bl(330,1,.028);bl(262,1.3,.024,.16)},boom:()=>thud(70,.12,.5),stop:()=>thud(110,.03,.1),tick:()=>{},tick2:()=>{},scat:()=>[523.25,659.25,783.99,987.77,1174.7].forEach((f,i)=>bl(f,1.2,.03,i*.1)),pop:()=>bl(740,.35,.028),drop:()=>thud(150,.03,.08),mult:()=>[440,659.25,880].forEach((f,i)=>bl(f,.9,.03,i*.1)),deal:()=>nz(.08,.02,1500,700),gem:()=>{bl(987.77,.7,.03);bl(1318.5,.9,.024,.1)},launch:()=>nz(1,.03,150,500),whoosh:()=>nz(.5,.025,200,900),spin:()=>nz(.4,.02,300,900)})}
 /* --- ящики --- */
-const CR=[["Обычный ящик",300,"📦",[70,24,5.5,.5]],["Редкий ящик",1500,"🎁",[35,40,20,5]],["Легендарный ящик",6000,"👑",[0,30,50,20]]],RAR=["Обычный","Редкий","Эпический","Легендарный"],
+const CR=[["Обычный ящик",10000,"📦",[70,24,5.5,.5]],["Редкий ящик",100000,"🎁",[35,40,20,5]],["Легендарный ящик",1000000,"👑",[0,30,50,20]]],RAR=["Обычный","Редкий","Эпический","Легендарный"],
 POOL=[["k1","k2","k4","k5","bt1","bt2","bt4","bt8"],["k7","k6","k3","k8","bt3","bt5","bt6"],["k9","k10","k11","bt7","bt9"],["k12","k13","k14","k15"]];
 window.NVcr=function(i){const[n,c,em,w]=CR[i];if(bal<c){toast("Не хватает средств");return}setBal(-c,1);snd("whoosh");
  let r=Math.random()*100,q=0;while(q<3&&(r-=w[q])>=0)q++;
@@ -1496,7 +1507,7 @@ Object.keys(PK).forEach(k=>RUB[k]=PK[k][1]);
 const item=k=>PK[k]?{n:"Игровая валюта: "+fmt(PK[k][0])+" ₽",rub:PK[k][1],st:PK[k][2],d:"Виртуальные рубли для игр. Это не настоящие деньги: вывод и обмен невозможны."}:RUB[k]?{n:NAMES()[k]||k,rub:RUB[k],st:Math.ceil(RUB[k]/2),d:"Предмет откроется сразу после оплаты."}:null;
 window.PAYF=function(k){const it=item(k);if(!it)return;const id="NV"+Math.random().toString(36).slice(2,7).toUpperCase(),e=document.createElement("div");e.className="offm";e.onclick=x=>{if(x.target==e)e.remove()};
  e.innerHTML=`<div class="offc setc pm"><div class="pmh"><h3>${esc(it.n)}</h3><div class="pmp">${it.rub} ₽ · ${it.st} ⭐</div><div class="sm">${esc(it.d)}</div></div><div class="pmb"><button class="go" onclick="NVst('${k}')">⭐ Оплатить Stars (${it.st})</button><button class="go gh2" onclick="NVsbp('${k}','${id}')">Оплатить по СБП (${it.rub} ₽)</button><div id="pmx"></div></div><button class="btn pmc" onclick="this.closest('.offm').remove()">Закрыть</button></div>`;document.body.appendChild(e)};
-Object.assign(window,{NVst(k){const it=item(k);if(send({t:"inv",k,stars:it.st,rub:it.rub}))toast("Готовим счёт в Stars…")},
+Object.assign(window,{NVall(){if(!(B.bal>0))return toast("В банке пусто");send({t:"wd",n:B.bal})},NVst(k){const it=item(k);if(send({t:"inv",k,stars:it.st,rub:it.rub}))toast("Готовим счёт в Stars…")},
  NVsbp(k,id){const it=item(k);$("#pmx").innerHTML=`<div class="pmq"><img src="${esc(QR_SRC)}" alt="QR"><div class="sm">Переведи ${it.rub} ₽ по СБП на<br><b>${PHONE}</b><br>В комментарии: <b>${id}</b></div></div><button class="btn" style="width:100%;margin-top:8px" onclick="cpy('${PHONE}')">Скопировать номер</button><button class="btn" style="width:100%;margin-top:6px" onclick="cpy('${id}')">Скопировать код</button><button class="go" onclick="NVpd('${k}','${id}',this)">Я оплатил(а)</button>`},
  NVpd(k,id,b){if(!PK[k])return window.PAYD(k,id,b);const it=item(k),sub="Заказ "+id+": "+it.n;send({t:"ord",id,k,rub:it.rub});ORD.push({id,k,t:Date.now()});ordSave();const a=document.createElement("a");a.href="mailto:"+MAIL+"?subject="+encodeURIComponent(sub)+"&body="+encodeURIComponent(sub+"\nID: "+B.id+"\nСумма: "+it.rub+" ₽");a.click();b.closest(".offm").remove();toast("Заказ создан, ждём подтверждения")},
  NVth(i){THM=i;document.documentElement.dataset.th=i;try{localStorage.setItem("nv_th",i)}catch(e){}bonus()},
@@ -1504,9 +1515,17 @@ Object.assign(window,{NVst(k){const it=item(k);if(send({t:"inv",k,stars:it.st,ru
 Object.assign(H,{inv(m){if(tg&&tg.openInvoice)tg.openInvoice(m.url,s=>{toast(s=="paid"?"Оплата прошла":"Оплата не завершена")});else toast("Открой игру внутри Telegram")},
  paid(m){if(m.n)setBal(m.n,1);if(m.k&&!PK[m.k]){(/^bt/.test(m.k)?SKS.bo:SKS.own).push(m.k);skSave()}toast("Оплата получена");snd("fan");burst();if(onBonus())bonus()}});
 {const ob4=bonus;bonus=function(){ob4();$("#app").insertAdjacentHTML("beforeend",
-`<div class="box"><h2 style="margin-top:0">📦 Ящики</h2><div class="crw">${CR.map((c,i)=>`<button onclick="NVcr(${i})"><b>${c[2]}</b>${c[0]}<span class="sm">${mny(c[1])}</span></button>`).join("")}</div><div class="sm" style="margin-top:10px">Шансы (обычный/редкий/эпический/легендарный): ${CR.map(c=>c[0].split(" ")[0]+" "+c[3].join("/")+"%").join(" · ")}. Повторный предмет возвращает 40% цены.</div></div>
+`<div class="box"><button class="go" style="margin:0" onclick="NVall()">Перевести всё из банка в игру</button><div class="sm" style="margin-top:6px">Это перенос между твоими счетами: банк → игровой баланс. Вывода в настоящие деньги нет.</div></div><div class="box"><h2 style="margin-top:0">📦 Ящики (за игровые ₽)</h2><div class="crw">${CR.map((c,i)=>`<button onclick="NVcr(${i})"><b>${c[2]}</b>${c[0]}<span class="sm">${mny(c[1])}</span></button>`).join("")}</div><div class="sm" style="margin-top:10px">Шансы (обычный/редкий/эпический/легендарный): ${CR.map(c=>c[0].split(" ")[0]+" "+c[3].join("/")+"%").join(" · ")}. Цена ящиков — в игровой валюте. Повторный предмет возвращает 40% цены.</div></div>
 <div class="box"><h2 style="margin-top:0">💳 Пополнить</h2>${Object.entries(PK).map(([k,v],i)=>`<div class="skr ${i?"":"f"}"><div class="ski"><b>${fmt(v[0])} ₽</b><span>виртуальная валюта</span></div><button class="btn" onclick="PAYF('${k}')">${v[1]} ₽ · ${v[2]} ⭐</button></div>`).join("")}</div>
 <div class="box"><h2 style="margin-top:0">🎨 Тема</h2><div class="tl" style="flex-wrap:wrap">${TH.map(t=>`<button class="pill ${t[0]==THM?"on":""}" style="flex:1 0 22%" onclick="NVth('${t[0]}')">${t[1]}</button>`).join("")}</div><h2>💱 Валюта баланса</h2><div class="sm" style="margin-bottom:6px">Игровые рубли виртуальные; курсы фиксированные и только для отображения.</div><div class="tl" style="flex-wrap:wrap">${Object.keys(CU).map(c=>`<button class="pill ${c==CUR?"on":""}" style="flex:1 0 20%" onclick="NVcu('${c}')">${c}</button>`).join("")}</div></div>`);xpUI();curFix()}}
+/* --- v13: без рекорда, реальный онлайн, фикс прыжков в краше --- */
+{const s=document.createElement("style");s.textContent=`.jp{display:none!important}
+.bots .bot,.hist em{animation:none!important}.bots{min-height:230px;align-content:start}
+.bal{flex-shrink:0}.bal .bv{white-space:nowrap}
+.onl{margin:0 0 14px;padding:10px 16px;border-radius:999px;text-align:center;font-weight:800;font-size:13px;color:var(--mu);border:1px solid var(--gb);background:var(--glass)}.onl b{color:var(--tx)}`;document.head.appendChild(s)}
+let ONL=0;
+Object.assign(H,{on(m){ONL=m.n;document.querySelectorAll(".onn").forEach(e=>e.textContent=ONL)}});
+{const oh2=home;home=function(){oh2();const j=document.querySelector("#app .jp");if(j)j.outerHTML=`<div class="onl">🟢 Сейчас в игре: <b class="onn">${ONL||"…"}</b></div>`}}
 /*NV12-END*/
 /* --- смайлы в шахматах и шашках --- */
 function bEmo(s,e){const w=document.querySelector(".cbw");if(!w)return;const r=w.getBoundingClientRect(),x=r.left+r.width/2,y=s=="me"?r.bottom-60:r.top+60,el=document.createElement("div");el.className="emj";el.textContent=e;el.style.left=x+"px";el.style.top=y+"px";document.body.appendChild(el);sparks(x,y,8,["✨","💫","⭐"]);snd("pop");setTimeout(()=>el.remove(),2300)}
