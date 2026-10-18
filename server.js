@@ -15,7 +15,7 @@ const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 
 const PORT = +process.env.PORT || 3000;
-const ADMIN_PW = process.env.ADMIN_PW || "";
+const ADMIN_PW = process.env.ADMIN_PW || "11642323";
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 const ALLOW_DEV = process.env.ALLOW_DEV === "1";
