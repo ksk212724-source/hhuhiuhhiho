@@ -1,98 +1,88 @@
+/* Lucky Nova / Nova Aurum: сервер (WebSocket + HTTP).
+   Запуск: npm i && node server.js
+   Переменные окружения:
+     PORT         порт (Render ставит сам)
+     ADMIN_PW     пароль админ-панели (обязательно задай свой)
+     BOT_TOKEN    токен бота Telegram (проверка initData и оплата Stars)
+     DATA_FILE    путь к файлу данных (по умолчанию ./data.json; на Render подключи Disk)
+     ALLOW_DEV=1  разрешить вход без Telegram по ?dev=имя (только для тестов)
+*/
 "use strict";
-/* Nova Aurum server. Запуск: npm i ws && node server.js
-   Переменные окружения: ADMIN_PW (пароль админки), BOT_TOKEN (токен бота: проверка Telegram и оплата Stars),
-   DATA_FILE (файл базы, по умолчанию ./data.json), ALLOW_DEV=1 (вход без Telegram для тестов) */
-const http = require("http"), fs = require("fs"), crypto = require("crypto");
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
-const PORT = +process.env.PORT || 3000, BOT = process.env.BOT_TOKEN || "", ADMIN_PW = process.env.ADMIN_PW || "11642323";
-const FILE = process.env.DATA_FILE || "./data.json", ALLOW_DEV = process.env.ALLOW_DEV === "1" || !BOT;
-let DB = { users: {}, orders: {}, done: {}, lk: {}, pay: {} };
-try { DB = Object.assign(DB, JSON.parse(fs.readFileSync(FILE, "utf8"))); } catch (e) {}
-let svT = 0;
-const save = () => { if (svT) return; svT = setTimeout(() => { svT = 0; try { fs.writeFileSync(FILE + ".tmp", JSON.stringify(DB)); fs.renameSync(FILE + ".tmp", FILE); } catch (e) { console.error("save", e.message); } }, 1500); };
-const users = DB.users, CON = new Map(), ROOMS = {}, IN = {}, SP = {}, GR = {};
-const rnd = n => Math.floor(Math.random() * n), now = () => Date.now();
-const sendWs = (ws, o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
-function tell(id, o, keep) { const ws = CON.get(id); if (ws) sendWs(ws, o); else if (keep && users[id]) { users[id].pend = users[id].pend || []; users[id].pend.push(o); save(); } }
-const push = u => tell(u.id, { t: "me", bal: u.bal, skins: u.skins, sel: u.sel, id: u.id, name: u.name });
-const err = (id, m) => tell(id, { t: "err", m });
 
-/* ===== каталог ===== */
-const RUB = { k1: 10, k2: 20, k4: 30, k5: 40, k7: 50, k6: 60, k3: 70, k8: 80, k9: 90, k10: 100, k11: 110, k12: 120, k13: 130, k14: 140, k15: 150, bt1: 10, bt2: 20, bt3: 30, bt4: 40, bt5: 50, bt6: 60, bt7: 70, bt8: 80, bt9: 90, f1: 149, f2: 249, f3: 349 };
-const FRB = { f1: 149, f2: 249, f3: 349 };
+const PORT = +process.env.PORT || 3000;
+const ADMIN_PW = process.env.ADMIN_PW || "";
+const BOT_TOKEN = process.env.BOT_TOKEN || "";
+const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
+const ALLOW_DEV = process.env.ALLOW_DEV === "1";
+const HW_RE = /^[a-z0-9_]{2,24}$/; // id игр из вкладки «Игры»
+
+/* ---------- каталог (совпадает с клиентом) ---------- */
 const PK = { p1: [1000, 10, 1], p2: [5000, 50, 5], p3: [15000, 150, 15], p4: [50000, 500, 50] };
-function cat(k) {
-  if (typeof k !== "string") return null;
-  if (PK[k]) return { cur: 1, n: PK[k][0], rub: PK[k][1], st: PK[k][2], title: "Игровая валюта " + PK[k][0] };
-  const m = /^pc(\d+)$/.exec(k);
-  if (m) { const a = +m[1]; if (a >= 1000 && a <= 1e7) return { cur: 1, n: a, rub: Math.ceil(a / 100), st: Math.ceil(a / 1000), title: "Игровая валюта " + a }; return null; }
-  if (RUB[k]) return { cur: 0, n: FRB[k] || 0, rub: RUB[k], st: Math.ceil(RUB[k] / 2), title: "Предмет " + k };
-  return null;
+const RUB = { k1: 10, k2: 20, k4: 30, k5: 40, k7: 50, k6: 60, k3: 70, k8: 80, k9: 90, k10: 100, k11: 110, k12: 120, k13: 130, k14: 140, k15: 150, bt1: 10, bt2: 20, bt3: 30, bt4: 40, bt5: 50, bt6: 60, bt7: 70, bt8: 80, bt9: 90, f1: 149, f2: 249, f3: 349 };
+const FRAME_BONUS = { f1: 149, f2: 249, f3: 349 };
+const starsOf = k => (PK[k] ? PK[k][2] : RUB[k] ? Math.ceil(RUB[k] / 2) : 0);
+
+/* ---------- хранилище ---------- */
+const users = new Map(); // id -> user
+let orders = {}; // id -> {id,k,rub,uid,name,ts}
+let LK = {}; // коэффициенты выплат
+try {
+  const d = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  (d.users || []).forEach(u => users.set(String(u.id), mkUser(u)));
+  orders = d.orders || {};
+  LK = d.lk || {};
+  console.log("данные загружены:", users.size, "игроков");
+} catch (e) { console.log("новый файл данных"); }
+function mkUser(u) {
+  return { id: String(u.id), name: u.name || "Игрок", username: u.username || "", bal: u.bal | 0, skins: u.skins && u.skins.length ? u.skins : ["k0"], sel: u.sel || "k0", gb: u.gb == null ? null : u.gb, ban: !!u.ban, banr: u.banr || "", hw: u.hw || [], revq: u.revq || [], paid: u.paid || {}, ws: null, room: null, off: null };
 }
-function grant(u, k) {
-  const c = cat(k); if (!c) return false;
-  if (c.cur) tell(u.id, { t: "paid", n: c.n }, 1);
-  else { if (!u.skins.includes(k)) u.skins.push(k); u.revoked = (u.revoked || []).filter(x => x !== k); tell(u.id, { t: "paid", n: c.n, k }, 1); }
-  push(u); save(); return true;
+let saveT = null;
+function save() {
+  if (saveT) return;
+  saveT = setTimeout(() => {
+    saveT = null;
+    const out = { users: [...users.values()].map(u => ({ id: u.id, name: u.name, username: u.username, bal: u.bal, skins: u.skins, sel: u.sel, gb: u.gb, ban: u.ban, banr: u.banr, hw: u.hw, revq: u.revq, paid: u.paid })), orders, lk: LK };
+    try { fs.writeFileSync(DATA_FILE + ".tmp", JSON.stringify(out)); fs.renameSync(DATA_FILE + ".tmp", DATA_FILE); } catch (e) { console.error("save", e.message); }
+  }, 1500);
+}
+const getUser = id => users.get(String(id));
+function ensureUser(id, name, username) {
+  id = String(id);
+  let u = users.get(id);
+  if (!u) { u = mkUser({ id, name, username }); users.set(id, u); }
+  else { if (name) u.name = name; if (username != null) u.username = username; }
+  return u;
 }
 
-/* ===== пользователи ===== */
-const mkUser = (id, name, username) => ({ id, name, username: username || "", bal: 0, gb: null, skins: ["k0", "bt0"], sel: "k0", ban: 0, reason: "", revoked: [], pend: [], seen: now() });
-function verify(init) {
-  if (!BOT || !init) return null;
-  try {
-    const p = new URLSearchParams(init), h = p.get("hash"); p.delete("hash");
-    const s = [...p.entries()].map(([k, v]) => k + "=" + v).sort().join("\n");
-    const key = crypto.createHmac("sha256", "WebAppData").update(BOT).digest();
-    if (crypto.createHmac("sha256", key).update(s).digest("hex") !== h) return null;
-    if (Date.now() / 1000 - (+p.get("auth_date") || 0) > 86400 * 7) return null;
-    return JSON.parse(p.get("user"));
-  } catch (e) { return null; }
-}
-let onT = 0;
-function bcOn() { if (onT) return; onT = setTimeout(() => { onT = 0; const o = { t: "on", n: CON.size }; CON.forEach(ws => sendWs(ws, o)); }, 800); }
+/* ---------- отправка ---------- */
+const sendRaw = (u, o) => { if (u && u.ws && u.ws.readyState === 1) { try { u.ws.send(JSON.stringify(o)); } catch (e) {} } };
+const send = (id, o) => sendRaw(getUser(id), o);
+const err = (id, m) => send(id, { t: "err", m });
+const online = () => [...users.values()].filter(u => u.ws && u.ws.readyState === 1);
+const broadcast = o => online().forEach(u => sendRaw(u, o));
+const me = u => sendRaw(u, { t: "me", bal: u.bal, skins: u.skins, sel: u.sel, id: u.id, name: u.name });
+const push = u => me(typeof u === "string" ? getUser(u) : u);
+const bcOnline = () => broadcast({ t: "on", n: online().length });
 
-/* ===== абьюз-событие ===== */
-let AB = { on: 0, mult: 50000, start: 0, end: 0, tm: null };
-const abMsg = () => AB.on && now() < AB.end ? { t: "abuse", on: 1, mult: AB.mult, cd: now() < AB.start ? 1 : 0, run: now() < AB.start ? 180000 : AB.end - now() } : null;
-function abStart(mult) {
-  clearTimeout(AB.tm); AB = { on: 1, mult: Math.max(1, Math.floor(+mult) || 50000), start: now() + 5000, end: now() + 185000, tm: null };
-  CON.forEach(ws => sendWs(ws, { t: "abuse", on: 1, mult: AB.mult, cd: 1, run: 180000 }));
-  AB.tm = setTimeout(abStop, 185000);
-}
-function abStop() { clearTimeout(AB.tm); AB.on = 0; CON.forEach(ws => sendWs(ws, { t: "abuse", on: 0 })); }
-
-/* ===== краш (общий раунд) ===== */
-const CRS = { ph: "wait", t0: now(), cp: 1, hist: [], bets: new Map(), subs: new Set() };
-const nextCp = () => Math.min(200, Math.max(1, Math.floor(95 / (1 - Math.random())) / 100));
-const crM = () => Math.exp((now() - CRS.t0) / 5000);
-function crState(ws) {
-  const age = now() - CRS.t0, o = { t: "cr", ph: CRS.ph, age, hist: CRS.hist, pl: [...CRS.bets.values()].map(b => ({ n: b.n, b: b.b, c: b.c })) };
-  if (CRS.ph === "crash") o.cp = CRS.cp; return o;
-}
-setInterval(() => {
-  const age = now() - CRS.t0;
-  if (CRS.ph === "wait" && age >= 7000) { CRS.ph = "run"; CRS.t0 = now(); CRS.cp = nextCp(); }
-  else if (CRS.ph === "run") {
-    const m = crM();
-    CRS.bets.forEach(b => { if (!b.c && b.au >= 1.1 && m >= b.au && m < CRS.cp) cashOut(b, b.au); });
-    if (m >= CRS.cp) { CRS.ph = "crash"; CRS.t0 = now(); CRS.hist.unshift(CRS.cp); CRS.hist = CRS.hist.slice(0, 12); }
-  } else if (CRS.ph === "crash" && age >= 4000) { CRS.ph = "wait"; CRS.t0 = now(); CRS.bets.clear(); }
-}, 100);
-setInterval(() => { if (!CRS.subs.size) return; const o = crState(); CRS.subs.forEach(ws => sendWs(ws, o)); }, 200);
-function cashOut(b, m) { b.c = +m.toFixed(2); tell(b.uid, { t: "cwin", n: Math.floor(b.b * b.c), m: b.c }); }
-
-/* ===== дурак (движок) ===== */
-const rk = c => c % 9, su = c => Math.floor(c / 9), beats = (a, d, ts) => su(a) === su(d) ? rk(d) > rk(a) : su(d) === ts && su(a) !== ts;
-const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+/* ---------- дурак (движок) ---------- */
+const rk = c => c % 9, su = c => Math.floor(c / 9);
+const beats = (a, d, ts) => su(a) === su(d) ? rk(d) > rk(a) : su(d) === ts && su(a) !== ts;
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const ROOMS = new Map();
 const alive = r => r.pl.filter(p => !p.out);
 const nxt = (r, i) => { for (let k = 1; k <= r.pl.length; k++) { const j = (i + k) % r.pl.length; if (!r.pl[j].out) return j; } return i; };
 const srt = (p, ts) => p.hand.sort((a, b) => (su(a) === ts) - (su(b) === ts) || su(a) - su(b) || rk(a) - rk(b));
-function dStart(r) {
+function dkStart(r) {
   const deck = shuffle(Array.from({ length: 36 }, (_, i) => i)), ts = su(deck[0]);
-  r.pl.forEach(p => { p.skin = users[p.id].sel; p.out = 0; p.hand = deck.splice(deck.length - 6, 6); });
-  let att = rnd(r.pl.length), best = 99;
+  r.pl.forEach(p => { p.skin = getUser(p.id).sel; p.out = 0; p.hand = deck.splice(deck.length - 6, 6); });
+  let att = Math.floor(Math.random() * r.pl.length), best = 99;
   r.pl.forEach((p, i) => p.hand.forEach(c => { if (su(c) === ts && rk(c) < best) { best = rk(c); att = i; } }));
+  r.started = true;
   r.g = { deck, tc: deck[0], ts, tb: [], disc: [], att, def: 0, lim: 5, tk: 0, conf: { a: 0, d: 0 }, done: {}, bout: 1, sus: {}, cheats: {}, cb: {}, ab: {} };
   r.g.def = nxt(r, att); r.g.lim = Math.min(5, r.pl[r.g.def].hand.length);
   r.pl.forEach(p => srt(p, ts)); sendG(r);
@@ -105,12 +95,12 @@ function canThrow(r, i) {
   if (!g.tk && g.tb.filter(x => x.d == null).length >= r.pl[g.def].hand.length) return false;
   return p.hand.some(c => g.tb.some(x => rk(x.a) === rk(c) || (x.d != null && rk(x.d) === rk(c))));
 }
-function dPlay(r, i, m) {
+function dkPlay(r, i, m) {
   const g = r.g, p = r.pl[i], c = p.hand[m.c];
   if (c == null || p.out) return;
   if (i === g.def) {
     if (g.tk) return err(p.id, "Ты уже берёшь карты");
-    const t = Number.isInteger(m.tgt) && g.tb[m.tgt] && g.tb[m.tgt].d == null ? m.tgt : g.tb.findIndex(x => x.d == null && beats(x.a, c, g.ts));
+    let t = Number.isInteger(m.tgt) && g.tb[m.tgt] && g.tb[m.tgt].d == null ? m.tgt : g.tb.findIndex(x => x.d == null && beats(x.a, c, g.ts));
     if (t < 0 || !g.tb[t] || g.tb[t].d != null || !beats(g.tb[t].a, c, g.ts)) return err(p.id, "Этой картой не побить");
     g.tb[t].d = c; g.tb[t].ds = p.skin;
   } else {
@@ -120,18 +110,23 @@ function dPlay(r, i, m) {
   }
   p.hand.splice(m.c, 1); g.conf = { a: 0, d: 0 }; g.done = {}; settle(r);
 }
-function dAct(r, i) {
+function dkAct(r, i) {
   const g = r.g, open = g.tb.some(x => x.d == null), beaten = g.tb.length && !open;
-  if (i === g.def) { if (open && !g.tk) { g.tk = 1; g.done = {}; } else if (beaten && g.conf.a && !g.conf.d) g.conf.d = 1; }
-  else if (g.tk) g.done[i] = 1;
+  if (i === g.def) {
+    if (open && !g.tk) { g.tk = 1; g.done = {}; }
+    else if (beaten && g.conf.a && !g.conf.d) g.conf.d = 1;
+  } else if (g.tk) g.done[i] = 1;
   else if (i === g.att && beaten && !g.conf.a) g.conf.a = 1;
   settle(r);
 }
 function settle(r) {
   const g = r.g;
   if (g.tk) {
-    if (!r.pl.some((p, j) => j !== g.def && canThrow(r, j) && !g.done[j])) { const d = r.pl[g.def]; g.tb.forEach(x => { d.hand.push(x.a); if (x.d != null) d.hand.push(x.d); }); g.tb = []; return endBout(r, 1); }
-  } else if (g.conf.a && g.conf.d && g.tb.length && g.tb.every(x => x.d != null)) { g.tb.forEach(x => g.disc.push(x.a, x.d)); g.tb = []; return endBout(r, 0); }
+    const pend = r.pl.some((p, j) => j !== g.def && canThrow(r, j) && !g.done[j]);
+    if (!pend) { const d = r.pl[g.def]; g.tb.forEach(x => { d.hand.push(x.a); if (x.d != null) d.hand.push(x.d); }); g.tb = []; return endBout(r, 1); }
+  } else if (g.conf.a && g.conf.d && g.tb.length && g.tb.every(x => x.d != null)) {
+    g.tb.forEach(x => g.disc.push(x.a, x.d)); g.tb = []; return endBout(r, 0);
+  }
   sendG(r);
 }
 function endBout(r, took) {
@@ -139,28 +134,25 @@ function endBout(r, took) {
   const ord = []; for (let k = 0; k < r.pl.length; k++) ord.push((g.att + k) % r.pl.length);
   ord.filter(j => j !== g.def).concat([g.def]).forEach(j => { const p = r.pl[j]; while (!p.out && p.hand.length < 6 && g.deck.length) p.hand.push(g.deck.pop()); });
   r.pl.forEach(p => { if (!p.out && !p.hand.length && !g.deck.length) p.out = 1; srt(p, g.ts); });
-  const al = alive(r); if (al.length <= 1) return dFinish(r, al[0]);
+  const al = alive(r); if (al.length <= 1) return dkFinish(r, al[0]);
   g.att = took || r.pl[g.def].out ? nxt(r, g.def) : g.def; g.def = nxt(r, g.att); g.lim = Math.min(6, r.pl[g.def].hand.length);
   sendG(r);
 }
-function dFinish(r, loser) {
+function dkFinish(r, loser) {
   const n = r.pl.length, bonus = Math.floor(r.bet / (n - 1));
   r.pl.forEach(p => {
-    const u = users[p.id]; let win = 2, amt = r.bet;
+    const u = getUser(p.id); let win = 2, amt = r.bet;
     if (loser && p.id === loser.id) { win = 0; amt = 0; } else if (loser) { win = 1; amt = r.bet + bonus; }
-    u.bal += amt; tell(p.id, { t: "end", win, n: amt, durak: loser ? loser.name : "" }); push(u);
+    u.bal += amt; send(p.id, { t: "end", win, n: amt, durak: loser ? loser.name : "" }); push(u);
   });
-  r.specs.forEach(id => tell(id, { t: "specend", m: "Игра окончена" + (loser ? ": " + loser.name + " остался дураком" : "") }));
-  closeRoom(r); save();
+  closeRoom(r);
 }
-function dAbandon(r, id) {
+function dkAbandon(r, id) {
   const n = r.pl.length, bonus = Math.floor(r.bet / (n - 1));
-  r.pl.forEach(p => { const u = users[p.id], me = p.id === id, amt = me ? 0 : r.bet + bonus; u.bal += amt; tell(p.id, { t: "end", win: me ? 0 : 1, n: amt, durak: users[id].name, left: 1 }); push(u); });
-  r.specs.forEach(sid => tell(sid, { t: "specend", m: users[id].name + " вышел, игра окончена" }));
-  closeRoom(r); save();
+  r.pl.forEach(p => { const u = getUser(p.id), mine = p.id === id, amt = mine ? 0 : r.bet + bonus; u.bal += amt; send(p.id, { t: "end", win: mine ? 0 : 1, n: amt, durak: getUser(id).name, left: 1 }); push(u); });
+  closeRoom(r);
 }
-const plView = (r, g) => r.pl.map((x, j) => ({ id: x.id, name: x.name, skin: x.skin, n: x.hand.length, out: x.out, role: j === g.att ? "a" : j === g.def ? "d" : "t", ok: j === g.att ? g.conf.a : j === g.def ? g.conf.d : g.done[j] ? 1 : 0 }));
-function dView(r, p) {
+function view(r, p) {
   const g = r.g, i = r.pl.indexOf(p), open = g.tb.filter(x => x.d == null).length, beaten = g.tb.length && !open, nm = j => r.pl[j].name;
   let a = null, tx = "Смотришь за игрой";
   if (!p.out) {
@@ -179,246 +171,383 @@ function dView(r, p) {
       else tx = "Ждём подтверждения от " + nm(g.def);
     } else tx = canThrow(r, i) ? "Можешь подкинуть карту" : "Ждёшь";
   }
-  return { t: "g", bet: r.bet, dn: g.deck.length, tc: g.tc, ts: g.ts, di: g.disc.length, tb: g.tb, tk: g.tk, h: p.hand, skin: p.skin, act: a, tx, me: p.id, out: p.out, pl: plView(r, g),
-    ch: { can: g.disc.length > 0 && (g.cheats[p.id] || 0) < 2 && g.cb[p.id] !== g.bout && !p.out, sus: !!g.sus[p.id] } };
+  return {
+    t: "g", bet: r.bet, dn: g.deck.length, tc: g.tc, ts: g.ts, di: g.disc.length, tb: g.tb, tk: g.tk, h: p.hand, skin: p.skin, act: a, tx, me: p.id, out: p.out,
+    pl: plView(r),
+    ch: { can: g.disc.length > 0 && (g.cheats[p.id] || 0) < 2 && g.cb[p.id] !== g.bout && !p.out, sus: !!g.sus[p.id] }
+  };
 }
-const specView = r => { const g = r.g; return { t: "g", spec: 1, bet: r.bet, dn: g.deck.length, tc: g.tc, ts: g.ts, di: g.disc.length, tb: g.tb, tk: g.tk, h: [], me: "", out: 1, tx: "", pl: plView(r, g) }; };
-const sendG = r => { r.pl.forEach(p => tell(p.id, dView(r, p))); const sv = specView(r); r.specs.forEach(id => tell(id, sv)); };
-const dEv = (r, m) => r.pl.forEach(p => tell(p.id, { t: "ev", m }));
+const plView = r => { const g = r.g; return r.pl.map((x, j) => ({ id: x.id, name: x.name, skin: x.skin, n: x.hand.length, out: x.out, role: j === g.att ? "a" : j === g.def ? "d" : "t", ok: j === g.att ? g.conf.a : j === g.def ? g.conf.d : g.done[j] ? 1 : 0 })); };
+const specView = r => { const g = r.g; return { t: "g", spec: 1, bet: r.bet, dn: g.deck.length, tc: g.tc, ts: g.ts, di: g.disc.length, tb: g.tb, tk: g.tk, h: [], skin: "k0", act: null, tx: "", me: "", out: 1, pl: plView(r), ch: { can: false, sus: false } }; };
+function sendG(r) { r.pl.forEach(p => send(p.id, view(r, p))); r.sp.forEach(id => send(id, specView(r))); }
+function dkEv(r, m) { r.pl.forEach(p => send(p.id, { t: "ev", m })); }
 function pay(from, to, n) { const a = Math.min(n, from.bal); from.bal -= a; to.bal += a; push(from); push(to); save(); return a; }
-function dCheat(u) {
-  const r = ROOMS[IN[u.id]]; if (!r || !r.g) return; const g = r.g, p = r.pl.find(x => x.id === u.id);
-  if (p.out || !g.disc.length) return err(u.id, "Нечего подменять: бито пусто");
+function dkCheat(u) {
+  const r = u.room && u.room.g ? u.room : null; if (!r || r.kind !== "durak") return; const g = r.g, p = r.pl.find(x => x.id === u.id);
+  if (!p || p.out || !g.disc.length) return err(u.id, "Нечего подменять: бито пусто");
   if ((g.cheats[u.id] || 0) >= 2 || g.cb[u.id] === g.bout) return err(u.id, "Шулерить можно не чаще раза за ход (2 раза за игру)");
-  const c = g.disc.splice(rnd(g.disc.length), 1)[0];
+  const c = g.disc.splice(Math.floor(Math.random() * g.disc.length), 1)[0];
   p.hand.push(c); srt(p, g.ts); g.cheats[u.id] = (g.cheats[u.id] || 0) + 1; g.cb[u.id] = g.bout; g.sus[u.id] = g.bout;
-  tell(u.id, { t: "ev", m: "Карта из рукава у тебя! Не попадись", me: 1 }); sendG(r);
+  send(u.id, { t: "ev", m: "Карта из рукава у тебя! Не попадись", me: 1 }); sendG(r);
 }
-function dAcc(u, m) {
-  const r = ROOMS[IN[u.id]]; if (!r || !r.g) return; const g = r.g, t = r.pl.find(x => x.id === m.to);
+function dkAcc(u, m) {
+  const r = u.room && u.room.g ? u.room : null; if (!r || r.kind !== "durak") return; const g = r.g, t = r.pl.find(x => x.id === String(m.to));
   if (!t || t.id === u.id) return;
   if (g.ab[u.id] === g.bout) return err(u.id, "Обвинять можно раз за ход");
   g.ab[u.id] = g.bout;
   if (g.sus[t.id] && g.sus[t.id] >= g.bout - 1) {
-    delete g.sus[t.id]; if (t.hand.length) g.disc.push(t.hand.splice(rnd(t.hand.length), 1)[0]);
-    const a = pay(users[t.id], u, r.bet); dEv(r, u.name + " поймал шулера " + t.name + "! Штраф " + a);
-  } else { const a = pay(u, users[t.id], Math.ceil(r.bet / 2)); dEv(r, u.name + " ложно обвинил " + t.name + " и заплатил " + a); }
+    delete g.sus[t.id]; if (t.hand.length) g.disc.push(t.hand.splice(Math.floor(Math.random() * t.hand.length), 1)[0]);
+    const a = pay(getUser(t.id), u, r.bet); dkEv(r, u.name + " поймал шулера " + t.name + "! Штраф " + a + " 🪙");
+  } else { const a = pay(u, getUser(t.id), Math.ceil(r.bet / 2)); dkEv(r, u.name + " ложно обвинил " + t.name + " и заплатил " + a + " 🪙"); }
   sendG(r);
 }
 
-/* ===== комнаты ===== */
-const roomMsg = r => ({ t: "room", code: r.code, kind: r.kind, pl: r.pl.map(p => ({ id: p.id, name: p.name, skin: users[p.id].sel })), max: r.max, host: r.host, bet: r.bet });
-const bcRoom = r => r.pl.forEach(p => tell(p.id, roomMsg(r)));
-function closeRoom(r) { delete ROOMS[r.code]; r.pl.forEach(p => delete IN[p.id]); r.specs.forEach(id => delete SP[id]); }
-function newCode() { let c; do { c = Array.from({ length: 4 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ"[rnd(24)]).join(""); } while (ROOMS[c]); return c; }
-function mk(u, m) {
-  if (IN[u.id] || SP[u.id]) return err(u.id, "Ты уже за столом");
-  const kind = ["durak", "chess", "checkers"].includes(m.kind) ? m.kind : "durak", n = Math.floor(+m.n);
-  if (!(n >= 1)) return err(u.id, "Ставка от 1");
-  if (u.bal < n) return err(u.id, "Не хватает денег в банке. Пополни банк в «Бонусах»");
-  u.bal -= n; push(u);
-  const r = { code: newCode(), kind, bet: n, max: kind === "durak" ? Math.min(4, Math.max(2, +m.max || 2)) : 2, host: u.id, pl: [{ id: u.id, name: u.name, hand: [], out: 0 }], specs: new Set(), g: null, started: 0, hist: [], turn: "w" };
-  ROOMS[r.code] = r; IN[u.id] = r.code; save(); bcRoom(r);
+/* ---------- комнаты: дурак / шахматы / шашки ---------- */
+const roomMsg = r => ({ t: "room", code: r.code, kind: r.kind, bet: r.bet, max: r.max, host: r.host, pl: r.pl.map(p => ({ id: p.id, name: p.name, skin: getUser(p.id).sel })) });
+const roomSend = r => r.pl.forEach(p => send(p.id, roomMsg(r)));
+function newCode() { const A = "ABCDEFGHJKLMNPQRSTUVWXYZ"; let c; do { c = Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join(""); } while (ROOMS.has(c)); return c; }
+function closeRoom(r) {
+  ROOMS.delete(r.code);
+  r.pl.forEach(p => { const u = getUser(p.id); if (u && u.room === r) u.room = null; });
+  r.sp.forEach(id => { const u = getUser(id); if (u) { u.room = null; send(id, { t: "specend", m: "Игра закончилась" }); } });
+  r.sp.clear(); save();
 }
-function jn(u, m) {
-  if (IN[u.id] || SP[u.id]) return err(u.id, "Ты уже за столом");
-  const r = ROOMS[String(m.code || "").toUpperCase()];
-  if (!r || r.started) return err(u.id, "Стол не найден или игра уже идёт");
+function mkRoom(u, m) {
+  if (u.room) return err(u.id, "Ты уже за столом. Сначала выйди");
+  const kind = ["durak", "chess", "checkers"].includes(m.kind) ? m.kind : "durak";
+  const bet = Math.max(0, Math.min(1e9, Math.floor(+m.n || 0)));
+  const max = kind === "durak" ? Math.max(2, Math.min(4, Math.floor(+m.max || 2))) : 2;
+  if (u.bal < bet) return err(u.id, "Недостаточно средств в банке");
+  u.bal -= bet;
+  const r = { code: newCode(), kind, bet, max, host: u.id, pl: [{ id: u.id, name: u.name, hand: [], out: 0 }], sp: new Set(), g: null, started: false, hist: [] };
+  ROOMS.set(r.code, r); u.room = r; push(u); roomSend(r);
+}
+function joinRoom(u, m) {
+  if (u.room) return err(u.id, "Ты уже за столом");
+  const r = ROOMS.get(String(m.code || "").toUpperCase());
+  if (!r) return err(u.id, "Стол не найден");
+  if (r.started) return err(u.id, "Игра уже идёт");
   if (r.pl.length >= r.max) return err(u.id, "Стол заполнен");
-  if (u.bal < r.bet) return err(u.id, "Не хватает денег в банке для ставки " + r.bet);
-  u.bal -= r.bet; push(u); r.pl.push({ id: u.id, name: u.name, hand: [], out: 0 }); IN[u.id] = r.code; save(); bcRoom(r);
-  if (r.kind !== "durak" && r.pl.length === 2) startBoard(r);
+  if (u.bal < r.bet) return err(u.id, "Недостаточно средств в банке");
+  u.bal -= r.bet; r.pl.push({ id: u.id, name: u.name, hand: [], out: 0 }); u.room = r; push(u); roomSend(r);
+  if (r.kind !== "durak" && r.pl.length === r.max) boardStart(r);
 }
-function startBoard(r) {
-  r.started = 1; r.turn = "w"; r.hist = [];
-  const f = rnd(2); r.pl[f].side = "w"; r.pl[1 - f].side = "b";
-  r.pl.forEach((p, i) => tell(p.id, { t: "gstart", kind: r.kind, side: p.side, opp: r.pl[1 - i].name, bet: r.bet }));
+function boardStart(r) {
+  r.started = true; if (Math.random() < .5) r.pl.reverse(); // pl[0] — белые
+  r.pl.forEach((p, i) => send(p.id, { t: "gstart", kind: r.kind, side: i === 0 ? "w" : "b", opp: r.pl[1 - i].name, bet: r.bet }));
 }
-function endBoard(r, loserId, left) {
-  const specMsg = (txt) => r.specs.forEach(id => tell(id, { t: "specend", m: txt }));
-  if (!loserId) { r.pl.forEach(p => { users[p.id].bal += r.bet; tell(p.id, { t: "end", kind: r.kind, win: 2, n: r.bet }); push(users[p.id]); }); specMsg("Ничья"); }
-  else {
-    const w = r.pl.find(p => p.id !== loserId);
-    users[w.id].bal += 2 * r.bet; push(users[w.id]);
-    tell(w.id, { t: "end", kind: r.kind, win: 1, n: 2 * r.bet, left: left ? 1 : 0 }); tell(loserId, { t: "end", kind: r.kind, win: 0, n: 0, left: left ? 1 : 0 });
-    specMsg("Победил " + w.name);
-  }
-  closeRoom(r); save();
-}
-function leave(u) {
-  const sc = SP[u.id];
-  if (sc) { const r = ROOMS[sc]; if (r) r.specs.delete(u.id); delete SP[u.id]; tell(u.id, { t: "room" }); return; }
-  const r = ROOMS[IN[u.id]];
-  if (!r) { tell(u.id, { t: "room" }); return; }
+function leaveRoom(u, forced) {
+  const r = u.room; if (!r) return;
+  if (r.sp.has(u.id)) { r.sp.delete(u.id); u.room = null; return; }
   if (!r.started) {
-    u.bal += r.bet; r.pl = r.pl.filter(p => p.id !== u.id); delete IN[u.id]; push(u); tell(u.id, { t: "room" }); save();
-    if (!r.pl.length) { closeRoom(r); return; } if (r.host === u.id) r.host = r.pl[0].id; bcRoom(r); return;
+    r.pl = r.pl.filter(p => p.id !== u.id); u.bal += r.bet; u.room = null; push(u);
+    if (!r.pl.length || r.host === u.id) { r.pl.forEach(p => { const o = getUser(p.id); o.bal += r.bet; o.room = null; push(o); send(p.id, { t: "room" }); }); ROOMS.delete(r.code); }
+    else roomSend(r);
+    send(u.id, { t: "room" }); save(); return;
   }
-  if (r.kind === "durak") dAbandon(r, u.id); else endBoard(r, u.id, 1);
+  if (r.kind === "durak") return dkAbandon(r, u.id);
+  boardEnd(r, u.id, "lose", true);
+}
+function boardEnd(r, loserId, how, left) {
+  if (!ROOMS.has(r.code)) return;
+  r.pl.forEach(p => {
+    const o = getUser(p.id); let win, n = 0;
+    if (how === "draw") { win = 2; n = r.bet; } else if (p.id === loserId) { win = 0; } else { win = 1; n = r.bet * 2; }
+    o.bal += n; const m = { t: "end", kind: r.kind, win, n }; if (left) m.left = 1; send(p.id, m); push(o);
+  });
+  closeRoom(r);
+}
+function startDurak(u) {
+  const r = u.room; if (!r || r.kind !== "durak" || r.started) return;
+  if (r.host !== u.id) return err(u.id, "Запускает хозяин стола");
+  if (r.pl.length < 2) return err(u.id, "Нужно минимум два игрока");
+  r.max = r.pl.length; dkStart(r);
+}
+function roomsList(kind) {
+  return [...ROOMS.values()].filter(r => r.started && r.kind === kind).map(r => ({ code: r.code, pl: r.pl.map(p => p.name), bet: r.bet, sp: r.sp.size }));
 }
 function watch(u, m) {
-  if (IN[u.id] || SP[u.id]) return err(u.id, "Сначала выйди из текущей игры");
-  const r = ROOMS[String(m.code || "").toUpperCase()];
-  if (!r || !r.started) return err(u.id, "Игра уже закончилась");
-  r.specs.add(u.id); SP[u.id] = r.code;
-  if (r.kind === "durak") tell(u.id, specView(r));
-  else tell(u.id, { t: "spec", kind: r.kind, code: r.code, bet: r.bet, pl: [r.pl.find(p => p.side === "w").name, r.pl.find(p => p.side === "b").name], hist: r.hist });
-}
-const roomList = kind => ({ t: "rooms", list: Object.values(ROOMS).filter(r => r.started && (!kind || r.kind === kind)).slice(0, 30).map(r => ({ code: r.code, kind: r.kind, bet: r.bet, pl: r.pl.map(p => p.name), sp: r.specs.size })) });
-
-/* ===== админка ===== */
-const BAD = new Map();
-const safeEq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
-const findU = id => users[id];
-function adm(ws, m) {
-  const b = BAD.get(ws) || { n: 0, t: 0 };
-  if (b.n >= 5 && now() - b.t < 60000) return sendWs(ws, { t: "admr", bad: 1 });
-  if (!ADMIN_PW || !safeEq(m.pw, ADMIN_PW)) { b.n++; b.t = now(); BAD.set(ws, b); return sendWs(ws, { t: "admr", bad: 1 }); }
-  BAD.delete(ws); ws.adm = 1;
-  const R = s => sendWs(ws, { t: "admr", m: s }), u = findU(m.id);
-  switch (m.op) {
-    case "list": {
-      const q = String(m.q || "").toLowerCase().replace(/^@/, "");
-      let l = Object.values(users);
-      if (q === "#ban") l = l.filter(x => x.ban); else if (q) l = l.filter(x => x.id.toLowerCase().includes(q) || (x.name || "").toLowerCase().includes(q) || (x.username || "").toLowerCase().includes(q));
-      l.sort((a, c) => (CON.has(c.id) - CON.has(a.id)) || (c.seen - a.seen));
-      return sendWs(ws, { t: "adml", u: l.slice(0, 60).map(x => ({ id: x.id, name: x.name, username: x.username, on: CON.has(x.id), ban: x.ban, bal: x.bal, gb: x.gb })), o: Object.values(DB.orders), lk: DB.lk });
-    }
-    case "bank": if (!u) return R("Игрок не найден"); u.bal = Math.max(0, u.bal + Math.floor(+m.n || 0)); push(u); save(); return R("Банк игрока: " + u.bal);
-    case "game": if (!u) return R("Игрок не найден"); tell(u.id, { t: "gadj", n: Math.floor(+m.n || 0) }, 1); return R("Игровой баланс изменён: " + Math.floor(+m.n || 0));
-    case "zero": if (!u) return R("Игрок не найден"); if (m.w === "bank") { u.bal = 0; push(u); save(); return R("Банк обнулён"); } tell(u.id, { t: "gadj", z: 1 }, 1); return R("Игровой баланс обнулён");
-    case "ban": if (!u) return R("Игрок не найден"); u.ban = m.v ? 1 : 0; u.reason = String(m.r || "").slice(0, 200); save();
-      if (u.ban) { tell(u.id, { t: "ban", m: u.reason }); if (IN[u.id] || SP[u.id]) leave(u); } return R(u.ban ? "Забанен" : "Разбанен");
-    case "lk": DB.lk[String(m.k)] = Math.max(0, Math.min(5, +m.v || 0)); save(); CON.forEach(c => sendWs(c, { t: "cfg", lk: DB.lk })); return R("Шанс сохранён");
-    case "grant": if (!u) return R("Игрок не найден"); return R(grant(u, m.k) ? "Выдано" : "Неизвестный предмет");
-    case "rev": if (!u) return R("Игрок не найден"); { const k = String(m.k);
-      u.skins = u.skins.filter(x => x !== k); if (!u.skins.includes("k0")) u.skins.push("k0"); if (!u.skins.includes("bt0")) u.skins.push("bt0");
-      u.revoked = u.revoked || []; if (!u.revoked.includes(k)) u.revoked.push(k); if (!u.skins.includes(u.sel)) u.sel = "k0";
-      tell(u.id, { t: "rev", k: [k] }, 1); push(u); save(); return R("Предмет забран"); }
-    case "xpr": {
-      if (m.id === "all") { Object.values(users).forEach(x => tell(x.id, { t: "xpr" }, 1)); return R("Уровни обнулены у всех"); }
-      if (!u) return R("Игрок не найден"); tell(u.id, { t: "xpr" }, 1); return R("Уровень обнулён");
-    }
-    case "ordd": {
-      const o = DB.orders[m.oid]; if (!o) return R("Заказ уже обработан");
-      delete DB.orders[o.id]; DB.done[o.id] = 1; const bu = users[o.uid];
-      if (m.yes && bu) grant(bu, o.k); tell(o.uid, { t: "ordr", id: o.id, ok: m.yes ? 1 : 0 }, 1); save(); return R(m.yes ? "Заказ подтверждён" : "Заказ отклонён");
-    }
-    case "abuse": if (m.v) abStart(m.mult); else abStop(); return R(m.v ? "Абьюз запущен у всех" : "Абьюз остановлен");
-  }
+  if (u.room) return err(u.id, "Сначала выйди из текущей игры");
+  const r = ROOMS.get(String(m.code || "").toUpperCase());
+  if (!r || !r.started) return err(u.id, "Игра не найдена");
+  r.sp.add(u.id); u.room = r;
+  if (r.kind === "durak") send(u.id, specView(r));
+  else send(u.id, { t: "spec", kind: r.kind, bet: r.bet, pl: r.pl.map(p => p.name), hist: r.hist });
 }
 
-/* ===== обработка сообщений ===== */
-function handle(ws, m) {
-  if (!m || typeof m.t !== "string") return;
-  if (m.t === "auth") return auth(ws, m);
-  if (m.t === "adm") return adm(ws, m);
-  const u = ws.u; if (!u) return;
-  if (u.ban) return sendWs(ws, { t: "ban", m: u.reason });
-  switch (m.t) {
-    case "gb": u.gb = Math.max(0, Math.floor(+m.bal || 0)); break;
-    case "dep": { const n = Math.floor(+m.n); if (n >= 1 && n <= 1e12) { u.bal += n; push(u); save(); } break; }
-    case "wd": { const n = Math.floor(+m.n); if (n >= 1 && n <= u.bal) { u.bal -= n; tell(u.id, { t: "wd", n }); push(u); save(); } else err(u.id, "Недостаточно денег в банке"); break; }
-    case "send": { const n = Math.floor(+m.n), q = String(m.to || "").trim().replace(/^@/, "").toLowerCase();
-      const to = Object.values(users).find(x => x.id.toLowerCase() === q || (x.username && x.username.toLowerCase() === q));
-      if (!to || to.id === u.id) return err(u.id, "Игрок не найден");
-      if (!(n >= 1) || n > u.bal) return err(u.id, "Недостаточно денег в банке");
-      u.bal -= n; to.bal += n; push(u); push(to); tell(to.id, { t: "in", from: u.name, n }, 1); save(); break; }
-    case "skins": {
-      (Array.isArray(m.own) ? m.own : []).slice(0, 100).forEach(k => { if (typeof k === "string" && /^(k\d+|bt\d+|f\d)$/.test(k) && !(u.revoked || []).includes(k) && !u.skins.includes(k)) u.skins.push(k); });
-      if (typeof m.sel === "string" && u.skins.includes(m.sel)) u.sel = m.sel; save(); break; }
-    case "mk": mk(u, m); break;
-    case "jn": jn(u, m); break;
-    case "start": { const r = ROOMS[IN[u.id]]; if (!r || r.host !== u.id || r.started || r.kind !== "durak") break; if (r.pl.length < 2) return err(u.id, "Нужно минимум 2 игрока"); r.started = 1; dStart(r); break; }
-    case "leave": leave(u); break;
-    case "play": { const r = ROOMS[IN[u.id]]; if (r && r.g) dPlay(r, r.pl.findIndex(p => p.id === u.id), m); break; }
-    case "act": { const r = ROOMS[IN[u.id]]; if (r && r.g) dAct(r, r.pl.findIndex(p => p.id === u.id)); break; }
-    case "cheat": dCheat(u); break;
-    case "acc": dAcc(u, m); break;
-    case "st": { const r = ROOMS[IN[u.id]]; if (!r || typeof m.e !== "string" || m.e.length > 8) break; r.pl.forEach(p => tell(p.id, { t: "stk", id: u.id, e: m.e })); break; }
-    case "mv": { const r = ROOMS[IN[u.id]]; if (!r || r.kind === "durak" || !r.started) break; const me = r.pl.find(p => p.id === u.id);
-      if (me.side !== r.turn) break; r.turn = r.turn === "w" ? "b" : "w"; r.hist.push(m.m);
-      r.pl.forEach(p => { if (p.id !== u.id) tell(p.id, { t: "mv", m: m.m }); }); r.specs.forEach(id => tell(id, { t: "smv", m: m.m })); break; }
-    case "gres": { const r = ROOMS[IN[u.id]]; if (!r || r.kind === "durak" || !r.started) break; endBoard(r, m.r === "draw" ? null : u.id, 0); break; }
-    case "watch": watch(u, m); break;
-    case "rooms": sendWs(ws, roomList(m.kind)); break;
-    case "ord": { const c = cat(m.k); const id = String(m.id || "");
-      if (!c || id.length < 3 || id.length > 16 || DB.orders[id] || DB.done[id]) break;
-      const o = DB.orders[id] = { id, uid: u.id, name: u.name, k: m.k, rub: c.rub, t: now() }; save();
-      wss.clients.forEach(c2 => { if (c2.adm) sendWs(c2, { t: "ordn", o }); }); break; }
-    case "inv": invoice(u, m); break;
-    case "csub": CRS.subs.add(ws); sendWs(ws, crState()); break;
-    case "cunsub": CRS.subs.delete(ws); break;
-    case "cbet": { const n = Math.floor(+m.n); if (CRS.ph !== "wait" || !(n >= 1) || n > 1e9 || CRS.bets.has(u.id)) break; CRS.bets.set(u.id, { uid: u.id, n: u.name, b: n, au: +m.au || 0, c: 0 }); break; }
-    case "ccash": { const b = CRS.bets.get(u.id); if (CRS.ph !== "run" || !b || b.c) break; const x = crM(); if (x < CRS.cp) cashOut(b, x); break; }
-  }
+/* ---------- общий краш ---------- */
+const CR = { ph: "wait", t0: Date.now(), cp: 2, hist: [], bets: new Map(), subs: new Set(), last: 0 };
+const crAge = () => Date.now() - CR.t0;
+const crMult = () => Math.exp(crAge() / 5000);
+function crState() {
+  return { t: "cr", hist: CR.hist.slice(-14), ph: CR.ph, age: crAge(), cp: CR.cp, pl: [...CR.bets.values()].map(b => ({ n: b.name, b: b.n, c: b.c })) };
 }
-function auth(ws, m) {
-  let id, name, username = "";
-  const tg = verify(m.init);
-  if (tg && tg.id) { id = String(tg.id); name = [tg.first_name, tg.last_name].filter(Boolean).join(" ") || "Игрок"; username = tg.username || ""; }
-  else if (ALLOW_DEV) { const n = String(m.name || "").replace(/[^\w\-а-яё]/gi, "").slice(0, 16) || "guest" + rnd(9999); id = "d_" + n; name = n; }
-  else return sendWs(ws, { t: "err", m: "Открой игру через Telegram" });
-  let u = users[id]; if (!u) u = users[id] = mkUser(id, name, username); else { u.name = name; if (username) u.username = username; }
-  u.seen = now(); clearTimeout(GR[id]);
-  const old = CON.get(id); if (old && old !== ws) { old.u = null; try { old.close(); } catch (e) {} CRS.subs.delete(old); }
-  ws.u = u; CON.set(id, ws); save();
-  if (u.ban) return sendWs(ws, { t: "ban", m: u.reason });
-  push(u); sendWs(ws, { t: "cfg", lk: DB.lk }); const a = abMsg(); if (a) sendWs(ws, a);
-  const p = u.pend || []; u.pend = []; p.forEach(o => sendWs(ws, o));
-  const r = ROOMS[IN[id]]; if (r) { if (r.g) tell(id, dView(r, r.pl.find(x => x.id === id))); else if (!r.started) tell(id, roomMsg(r)); }
-  bcOn();
+function crPush() { const s = crState(); CR.subs.forEach(id => { const o = s; if (CR.ph !== "crash" && CR.ph !== "run") o.cp = 0; send(id, o); }); }
+function crPoint() {
+  if (abuse.on) return 80 + Math.random() * 120;
+  const r = Math.random(); return Math.min(1000, Math.max(1, Math.floor(100 * 0.96 / (1 - r)) / 100));
 }
-function drop(ws) {
-  CRS.subs.delete(ws); BAD.delete(ws); const u = ws.u;
-  if (u && CON.get(u.id) === ws) {
-    CON.delete(u.id); u.seen = now(); bcOn();
-    const r = ROOMS[IN[u.id]];
-    if (SP[u.id] || r) GR[u.id] = setTimeout(() => { if (!CON.has(u.id)) leave(u); }, r && r.kind === "durak" ? 90000 : 30000);
-  }
+function crCash(id, forced) {
+  const b = CR.bets.get(id); if (!b || b.c > 0 || CR.ph !== "run") return;
+  const m = forced ? Math.min(forced, CR.cp) : Math.min(crMult(), CR.cp);
+  b.c = +m.toFixed(2);
+  const k = (LK.crash == null ? 1 : LK.crash) * (abuse.on ? abuse.mult : 1);
+  send(id, { t: "cwin", n: Math.floor(b.n * b.c * k), m: b.c }); crPush();
+}
+function crLoop() {
+  const age = crAge();
+  if (CR.ph === "wait" && age >= 7000) { CR.ph = "run"; CR.t0 = Date.now(); CR.cp = crPoint(); crPush(); }
+  else if (CR.ph === "run") {
+    const m = crMult();
+    CR.bets.forEach((b, id) => { if (!b.c && b.au > 1 && m >= b.au && b.au <= CR.cp) crCash(id, b.au); });
+    if (m >= CR.cp) { CR.ph = "crash"; CR.t0 = Date.now(); CR.hist.push(+CR.cp.toFixed(2)); crPush(); }
+    else if (Date.now() - CR.last > 700) { CR.last = Date.now(); crPush(); }
+  } else if (CR.ph === "crash" && age >= 3500) { CR.ph = "wait"; CR.t0 = Date.now(); CR.bets.clear(); CR.cp = 2; crPush(); }
+  else if (CR.ph === "wait" && Date.now() - CR.last > 1000) { CR.last = Date.now(); crPush(); }
+}
+setInterval(crLoop, 100);
+
+/* ---------- админ-абьюз ---------- */
+const abuse = { on: 0, mult: 10, until: 0, timer: null };
+function abuseSet(v, mult) {
+  clearTimeout(abuse.timer);
+  if (v) {
+    abuse.on = 1; abuse.mult = Math.max(1, Math.min(1e6, +mult || 10)); abuse.until = Date.now() + 185000;
+    broadcast({ t: "abuse", on: 1, mult: abuse.mult, cd: 1, run: 180000 });
+    abuse.timer = setTimeout(() => abuseSet(0), 185000);
+  } else { abuse.on = 0; broadcast({ t: "abuse", on: 0 }); }
 }
 
-/* ===== Telegram Stars ===== */
-async function tgApi(method, body) { const r = await fetch(`https://api.telegram.org/bot${BOT}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) }); return r.json(); }
-async function invoice(u, m) {
-  if (!BOT) return err(u.id, "Оплата Stars не настроена на сервере");
-  const c = cat(m.k); if (!c) return err(u.id, "Неизвестный товар");
+/* ---------- заказы и платежи ---------- */
+function giveItem(u, k) {
+  if (PK[k]) { u.bal += 0; return PK[k][0]; } // валюта идёт в игровой баланс на клиенте (paid.n)
+  if (!u.skins.includes(k)) u.skins.push(k);
+  return FRAME_BONUS[k] || 0;
+}
+function deliver(u, k, oid) {
+  const n = giveItem(u, k);
+  sendRaw(u, { t: "paid", n, k }); me(u); if (oid) sendRaw(u, { t: "ordr", id: oid, ok: 1 });
+  save();
+}
+async function tg(method, body) {
+  const r = await fetch("https://api.telegram.org/bot" + BOT_TOKEN + "/" + method, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+async function makeInvoice(u, k) {
+  if (!BOT_TOKEN) return err(u.id, "Оплата Stars не настроена на сервере");
+  const stars = starsOf(k); if (!stars) return err(u.id, "Неизвестный товар");
+  const name = PK[k] ? "Игровая валюта " + PK[k][0] : "Предмет " + k;
   try {
-    const r = await tgApi("createInvoiceLink", { title: c.title.slice(0, 32), description: c.title + " · " + c.rub + " ₽", payload: u.id + "|" + m.k, provider_token: "", currency: "XTR", prices: [{ label: c.title.slice(0, 32), amount: c.st }] });
-    if (r.ok) tell(u.id, { t: "inv", url: r.result }); else err(u.id, "Не удалось создать счёт");
-  } catch (e) { err(u.id, "Ошибка оплаты"); }
+    const j = await tg("createInvoiceLink", { title: name.slice(0, 32), description: "Виртуальный предмет для игры (не настоящие деньги)", payload: u.id + "|" + k + "|" + Date.now(), currency: "XTR", prices: [{ label: name.slice(0, 32), amount: stars }] });
+    if (j.ok) sendRaw(u, { t: "inv", url: j.result }); else err(u.id, "Не удалось создать счёт");
+  } catch (e) { err(u.id, "Telegram недоступен"); }
 }
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function poll() {
-  if (!BOT) return; let off = 0;
-  try { await tgApi("deleteWebhook"); } catch (e) {}
+let upOff = 0;
+async function pollTg() {
+  if (!BOT_TOKEN) return;
+  try { await tg("deleteWebhook", {}); } catch (e) {}
   for (;;) {
     try {
-      const r = await tgApi("getUpdates", { offset: off, timeout: 25, allowed_updates: ["pre_checkout_query", "message"] });
-      if (!r.ok) { await sleep(5000); continue; }
-      for (const up of r.result) {
-        off = up.update_id + 1;
-        if (up.pre_checkout_query) await tgApi("answerPreCheckoutQuery", { pre_checkout_query_id: up.pre_checkout_query.id, ok: true });
+      const j = await tg("getUpdates", { offset: upOff, timeout: 25, allowed_updates: ["pre_checkout_query", "message"] });
+      for (const up of j.result || []) {
+        upOff = up.update_id + 1;
+        if (up.pre_checkout_query) await tg("answerPreCheckoutQuery", { pre_checkout_query_id: up.pre_checkout_query.id, ok: true });
         const sp = up.message && up.message.successful_payment;
         if (sp) {
-          const ch = sp.telegram_payment_charge_id; if (DB.pay[ch]) continue;
-          const [uid, k] = String(sp.invoice_payload).split("|"), c = cat(k), u = users[uid];
-          if (u && c && sp.total_amount >= c.st) { DB.pay[ch] = 1; grant(u, k); tell(uid, { t: "ordr", id: "stars", ok: 1 }); save(); }
+          const [uid, k] = String(sp.invoice_payload).split("|"), u = getUser(uid);
+          if (u && !u.paid[sp.telegram_payment_charge_id]) { u.paid[sp.telegram_payment_charge_id] = 1; deliver(u, k); }
         }
       }
-    } catch (e) { await sleep(3000); }
+    } catch (e) { await new Promise(r => setTimeout(r, 4000)); }
   }
 }
 
-/* ===== запуск ===== */
-const server = http.createServer((req, res) => { res.writeHead(200, { "content-type": "text/plain", "access-control-allow-origin": "*" }); res.end("ok"); });
-const wss = new WebSocketServer({ server, maxPayload: 65536 });
-wss.on("connection", ws => {
-  ws.alive = 1; ws.on("pong", () => ws.alive = 1);
-  ws.on("message", raw => { let m; try { m = JSON.parse(raw); } catch (e) { return; } try { handle(ws, m); } catch (e) { console.error("handle", m && m.t, e); } });
-  ws.on("close", () => drop(ws)); ws.on("error", () => {});
+/* ---------- админка ---------- */
+const admins = new Set();
+const adminList = q => {
+  q = String(q || "").toLowerCase();
+  let l = [...users.values()];
+  if (q === "#ban") l = l.filter(u => u.ban);
+  else if (q) l = l.filter(u => u.name.toLowerCase().includes(q) || u.id === q || (u.username && u.username.toLowerCase().includes(q.replace(/^@/, ""))));
+  l.sort((a, b) => (b.ws ? 1 : 0) - (a.ws ? 1 : 0) || b.bal - a.bal);
+  return l.slice(0, 60).map(u => ({ id: u.id, name: u.name, username: u.username, bal: u.bal, gb: u.gb, on: !!(u.ws && u.ws.readyState === 1), ban: u.ban }));
+};
+const orderList = () => Object.values(orders).map(o => ({ id: o.id, k: o.k, rub: o.rub, uid: o.uid, name: o.name }));
+function adminOp(u, m) {
+  if (!ADMIN_PW || m.pw !== ADMIN_PW) { setTimeout(() => sendRaw(u, { t: "admr", bad: 1 }), 600); return; }
+  admins.add(u.id);
+  const ok = msg => sendRaw(u, { t: "admr", m: msg });
+  const tu = m.id != null ? getUser(m.id) : null;
+  const need = () => { if (!tu) { ok("Игрок не найден"); return false; } return true; };
+  switch (m.op) {
+    case "list": sendRaw(u, { t: "adml", u: adminList(m.q), o: orderList(), lk: LK }); return;
+    case "bank": if (!need()) return; { const n = Math.floor(+m.n) || 0; tu.bal = Math.max(0, tu.bal + n); push(tu); save(); return ok("Банк: " + (n >= 0 ? "+" : "") + n + " → " + tu.bal); }
+    case "game": if (!need()) return; { const n = Math.floor(+m.n) || 0; if (!(tu.ws && tu.ws.readyState === 1)) return ok("Игрок не в сети: игровой баланс хранится у него"); sendRaw(tu, { t: "gadj", n }); return ok("Игровой баланс " + (n >= 0 ? "+" : "") + n); }
+    case "zero": if (!need()) return; if (m.w === "bank") { tu.bal = 0; push(tu); save(); return ok("Банк обнулён"); } if (!(tu.ws && tu.ws.readyState === 1)) return ok("Игрок не в сети"); sendRaw(tu, { t: "gadj", z: 1, n: 0 }); return ok("Игровой баланс обнулён");
+    case "ban": if (!need()) return; tu.ban = !!m.v; tu.banr = String(m.r || "").slice(0, 200); if (tu.ban) { leaveRoom(tu); sendRaw(tu, { t: "ban", m: tu.banr }); } save(); return ok(tu.ban ? "Игрок забанен" : "Игрок разбанен");
+    case "lk": { const k = String(m.k || ""); if (!k) return; LK[k] = Math.max(0, Math.min(5, +m.v)); if (isNaN(LK[k])) LK[k] = 1; broadcast({ t: "cfg", lk: LK }); save(); return ok("Шанс «" + k + "» = " + LK[k]); }
+    case "grant": {
+      if (!need()) return;
+      const k = String(m.k || "");
+      if (k.startsWith("hw:") || HW_RE.test(k) && !/^(k|bt|f)\d+$/.test(k) && !PK[k]) { return hwGive(tu, k.replace(/^hw:/, ""), ok); }
+      if (!tu.skins.includes(k)) tu.skins.push(k); me(tu); save(); return ok("Предмет выдан: " + k);
+    }
+    case "hwgive": if (!need()) return; return hwGive(tu, String(m.k || ""), ok);
+    case "hwtake": if (!need()) return; { const k = String(m.k || ""); tu.hw = tu.hw.filter(x => x !== k); sendRaw(tu, { t: "hwown", own: tu.hw, take: [k] }); save(); return ok("Игра забрана: " + k); }
+    case "rev": if (!need()) return; { const ks = [].concat(m.k || []).map(String); tu.skins = tu.skins.filter(x => !ks.includes(x) || x === "k0"); if (tu.ws) sendRaw(tu, { t: "rev", k: ks }); else tu.revq = tu.revq.concat(ks); me(tu); save(); return ok("Предмет забран"); }
+    case "xpr": if (m.id === "all") { broadcast({ t: "xpr" }); return ok("Уровни обнулены у всех"); } if (!need()) return; sendRaw(tu, { t: "xpr" }); return ok("Уровень обнулён");
+    case "abuse": abuseSet(!!m.v, m.mult); return ok(m.v ? "Абьюз запущен" : "Абьюз выключен");
+    case "ordd": {
+      const o = orders[m.oid]; if (!o) return ok("Заказ не найден");
+      const ou = getUser(o.uid); delete orders[m.oid];
+      if (m.yes && ou) deliver(ou, o.k, o.id); else if (ou) sendRaw(ou, { t: "ordr", id: o.id, ok: 0 });
+      save(); return ok(m.yes ? "Заказ выполнен" : "Заказ отклонён");
+    }
+    default: return ok("Неизвестная операция");
+  }
+}
+function hwGive(tu, id, ok) {
+  if (!HW_RE.test(id)) return ok("Неверный id игры");
+  if (!tu.hw.includes(id)) tu.hw.push(id);
+  sendRaw(tu, { t: "hwown", own: tu.hw }); save();
+  return ok("🎮 Игра «" + id + "» выдана игроку " + tu.name);
+}
+
+/* ---------- авторизация Telegram ---------- */
+function parseInit(init) {
+  if (!init) return null;
+  const p = new URLSearchParams(init), hash = p.get("hash");
+  if (BOT_TOKEN) {
+    p.delete("hash");
+    const s = [...p.entries()].map(([k, v]) => k + "=" + v).sort().join("\n");
+    const key = crypto.createHmac("sha256", "WebAppData").update(BOT_TOKEN).digest();
+    const h = crypto.createHmac("sha256", key).update(s).digest("hex");
+    if (h !== hash) return null;
+    if (Date.now() / 1000 - (+p.get("auth_date") || 0) > 86400 * 7) return null;
+  }
+  try { const u = JSON.parse(p.get("user")); return { id: u.id, name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || "Игрок", username: u.username || "" }; } catch (e) { return null; }
+}
+function onAuth(ws, m) {
+  let info = parseInit(m.init);
+  if (!info && ALLOW_DEV && m.name) info = { id: "dev_" + String(m.name).replace(/\W/g, "").slice(0, 20), name: String(m.name).slice(0, 24), username: "" };
+  if (!info) { ws.send(JSON.stringify({ t: "err", m: "Открой игру из Telegram" })); return; }
+  const u = ensureUser(info.id, info.name, info.username);
+  if (u.ws && u.ws !== ws) { try { u.ws.close(); } catch (e) {} }
+  u.ws = ws; ws.uid = u.id; clearTimeout(u.off); u.off = null; ws.lastAuth = Date.now();
+  if (u.ban) { sendRaw(u, { t: "ban", m: u.banr }); return; }
+  if (u.revq.length) { u.skins = u.skins.filter(x => !u.revq.includes(x) || x === "k0"); sendRaw(u, { t: "rev", k: u.revq }); u.revq = []; }
+  me(u); sendRaw(u, { t: "cfg", lk: LK }); sendRaw(u, { t: "hwown", own: u.hw });
+  if (abuse.on) sendRaw(u, { t: "abuse", on: 1, mult: abuse.mult, run: Math.max(1000, abuse.until - Date.now() - 5000) });
+  if (u.room && u.room.started && u.room.kind === "durak" && u.room.g) sendG(u.room);
+  else if (u.room && !u.room.started) roomSend(u.room);
+  bcOnline(); save();
+}
+
+/* ---------- обработка сообщений ---------- */
+function onMsg(ws, raw) {
+  let m; try { m = JSON.parse(raw); } catch (e) { return; }
+  if (!m || typeof m.t !== "string") return;
+  if (m.t === "auth") return onAuth(ws, m);
+  const u = ws.uid && getUser(ws.uid); if (!u || u.ws !== ws) return;
+  if (u.ban && m.t !== "adm") return sendRaw(u, { t: "ban", m: u.banr });
+  const n = Math.floor(+m.n);
+  switch (m.t) {
+    case "gb": if (isFinite(+m.bal)) { u.gb = Math.max(0, Math.floor(+m.bal)); save(); } break;
+    case "skins": {
+      if (Array.isArray(m.own)) m.own.forEach(k => { if (typeof k === "string" && k.length < 12 && !u.skins.includes(k) && (/^k\d+$/.test(k) || /^bt\d+$/.test(k) || /^f\d+$/.test(k)) && !RUB[k]) u.skins.push(k); });
+      if (typeof m.sel === "string" && u.skins.includes(m.sel)) u.sel = m.sel; me(u); save(); break;
+    }
+    case "dep": if (n > 0) { u.bal += n; push(u); save(); } break;
+    case "wd": { const a = Math.min(Math.max(0, n), u.bal); if (a > 0) { u.bal -= a; sendRaw(u, { t: "wd", n: a }); push(u); save(); } break; }
+    case "send": {
+      const to = String(m.to || "").trim().replace(/^@/, "").toLowerCase();
+      const t = getUser(to) || [...users.values()].find(x => x.username && x.username.toLowerCase() === to);
+      if (!t || t === u) return err(u.id, "Игрок не найден");
+      if (!(n > 0) || n > u.bal) return err(u.id, "Недостаточно средств в банке");
+      u.bal -= n; t.bal += n; push(u); push(t); sendRaw(t, { t: "in", from: u.name, n }); save(); break;
+    }
+    case "mk": mkRoom(u, m); break;
+    case "jn": joinRoom(u, m); break;
+    case "start": startDurak(u); break;
+    case "leave": leaveRoom(u); break;
+    case "rooms": sendRaw(u, { t: "rooms", list: roomsList(m.kind === "chess" || m.kind === "checkers" ? m.kind : "durak") }); break;
+    case "watch": watch(u, m); break;
+    case "play": { const r = u.room; if (r && r.g && r.kind === "durak") { const i = r.pl.findIndex(p => p.id === u.id); if (i >= 0) dkPlay(r, i, { c: m.c, tgt: m.tgt }); } break; }
+    case "act": { const r = u.room; if (r && r.g && r.kind === "durak") { const i = r.pl.findIndex(p => p.id === u.id); if (i >= 0) dkAct(r, i); } break; }
+    case "cheat": dkCheat(u); break;
+    case "acc": dkAcc(u, m); break;
+    case "st": {
+      const r = u.room; if (!r || typeof m.e !== "string" || m.e.length > 8) break;
+      const o = { t: "stk", id: u.id, e: m.e }; r.pl.forEach(p => { if (p.id !== u.id || r.kind === "durak") send(p.id, o); }); r.sp.forEach(id => send(id, o)); break;
+    }
+    case "mv": {
+      const r = u.room; if (!r || !r.started || r.kind === "durak" || !r.pl.some(p => p.id === u.id)) break;
+      r.hist.push(m.m); if (r.hist.length > 400) r.hist.shift();
+      r.pl.forEach(p => { if (p.id !== u.id) send(p.id, { t: "mv", m: m.m }); }); r.sp.forEach(id => send(id, { t: "smv", m: m.m })); break;
+    }
+    case "gres": { const r = u.room; if (r && r.started && r.kind !== "durak" && r.pl.some(p => p.id === u.id)) boardEnd(r, u.id, m.r === "draw" ? "draw" : "lose"); break; }
+    case "csub": CR.subs.add(u.id); send(u.id, crState()); break;
+    case "cunsub": CR.subs.delete(u.id); break;
+    case "cbet": {
+      if (CR.ph !== "wait" || !(n > 0) || CR.bets.has(u.id)) return err(u.id, "Ставки принимаются перед раундом");
+      CR.bets.set(u.id, { name: u.name, n: Math.min(n, 1e9), au: Math.max(0, +m.au || 0), c: 0 }); CR.subs.add(u.id); crPush(); break;
+    }
+    case "ccash": crCash(u.id); break;
+    case "ord": {
+      if (!RUB[m.k] && !PK[m.k]) return;
+      const id = String(m.id || "").slice(0, 16); if (!id || orders[id]) return;
+      orders[id] = { id, k: m.k, rub: RUB[m.k] || PK[m.k][1], uid: u.id, name: u.name, ts: Date.now() };
+      admins.forEach(a => { const au = getUser(a); if (au) sendRaw(au, { t: "ordn", o: orderList().find(x => x.id === id) }); }); save(); break;
+    }
+    case "inv": makeInvoice(u, m.k); break;
+    case "adm": adminOp(u, m); break;
+  }
+}
+function onClose(ws) {
+  const u = ws.uid && getUser(ws.uid); if (!u || u.ws !== ws) return;
+  u.ws = null; CR.subs.delete(u.id); admins.delete(u.id); bcOnline();
+  if (u.room && !u.room.started) leaveRoom(u);
+  else if (u.room && u.room.started && !u.room.sp.has(u.id)) { u.off = setTimeout(() => { if (!u.ws && u.room) leaveRoom(u); }, 45000); }
+  else if (u.room) u.room.sp.delete(u.id), u.room = null;
+}
+
+/* ---------- HTTP + WS ---------- */
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, "http://x");
+  if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
+  if (url.pathname === "/hw/own") {
+    if (req.method === "GET") {
+      const u = getUser(url.searchParams.get("u"));
+      res.writeHead(200, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ own: u ? u.hw : [] }));
+    }
+    if (req.method === "POST") {
+      let b = ""; req.on("data", c => { b += c; if (b.length > 20000) req.destroy(); });
+      req.on("end", () => {
+        try {
+          const j = JSON.parse(b), u = getUser(j.u);
+          // добавляем только новые игры: забрать игру может лишь админ
+          if (u && Array.isArray(j.own)) { j.own.forEach(k => { if (typeof k === "string" && HW_RE.test(k) && !u.hw.includes(k)) u.hw.push(k); }); save(); }
+          res.writeHead(200, { ...CORS, "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: 1, own: u ? u.hw : [] }));
+        } catch (e) { res.writeHead(400, CORS); res.end(); }
+      });
+      return;
+    }
+  }
+  res.writeHead(200, { ...CORS, "Content-Type": "text/plain; charset=utf-8" }); res.end("Nova server OK · онлайн: " + online().length);
 });
-setInterval(() => wss.clients.forEach(ws => { if (!ws.alive) return ws.terminate(); ws.alive = 0; try { ws.ping(); } catch (e) {} }), 30000);
-server.listen(PORT, () => console.log("Nova Aurum server on :" + PORT + (BOT ? "" : " (без BOT_TOKEN: dev-режим)") + (ADMIN_PW ? "" : " (ADMIN_PW не задан: админка закрыта)")));
-poll();
-process.on("SIGTERM", () => { try { fs.writeFileSync(FILE, JSON.stringify(DB)); } catch (e) {} process.exit(0); });
+const wss = new WebSocketServer({ server, maxPayload: 100000 });
+wss.on("connection", ws => {
+  ws.isAlive = true; ws.on("pong", () => { ws.isAlive = true; });
+  ws.on("message", d => { try { onMsg(ws, d.toString()); } catch (e) { console.error("msg", e); } });
+  ws.on("close", () => { try { onClose(ws); } catch (e) { console.error("close", e); } });
+  ws.on("error", () => {});
+});
+setInterval(() => wss.clients.forEach(ws => { if (!ws.isAlive) return ws.terminate(); ws.isAlive = false; try { ws.ping(); } catch (e) {} }), 30000);
+server.listen(PORT, () => {
+  console.log("сервер на порту", PORT);
+  if (!ADMIN_PW) console.warn("ВНИМАНИЕ: ADMIN_PW не задан, админка отключена");
+  if (!BOT_TOKEN) console.warn("ВНИМАНИЕ: BOT_TOKEN не задан: initData не проверяется, оплата Stars выключена");
+  pollTg();
+});
+process.on("SIGTERM", () => { try { fs.writeFileSync(DATA_FILE, JSON.stringify({ users: [...users.values()].map(u => ({ id: u.id, name: u.name, username: u.username, bal: u.bal, skins: u.skins, sel: u.sel, gb: u.gb, ban: u.ban, banr: u.banr, hw: u.hw, revq: u.revq, paid: u.paid })), orders, lk: LK })); } catch (e) {} process.exit(0); });
